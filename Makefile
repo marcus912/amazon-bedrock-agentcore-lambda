@@ -1,7 +1,8 @@
-.PHONY: help install build deploy test clean
+.PHONY: help install build deploy test clean setup-env
 
 help:
 	@echo "Available commands:"
+	@echo "  make setup-env  - Create .env from .env.example"
 	@echo "  make install    - Install development dependencies"
 	@echo "  make build      - Build SAM application"
 	@echo "  make deploy-dev - Deploy to dev environment"
@@ -12,8 +13,16 @@ help:
 	@echo "  make logs       - Tail Lambda logs"
 	@echo "  make clean      - Clean build artifacts"
 
+setup-env:
+	@if [ ! -f .env ]; then \
+		cp .env.example .env; \
+		echo "Created .env file. Please update with your values."; \
+	else \
+		echo ".env file already exists."; \
+	fi
+
 install:
-	pip install aws-sam-cli boto3 pytest
+	pip install -r requirements-dev.txt
 
 build:
 	sam build
@@ -34,7 +43,12 @@ test:
 	pytest tests/ -v
 
 invoke:
-	sam local invoke BedrockAgentFunction -e events/test-event.json
+	@if [ -f .env ]; then \
+		sam local invoke BedrockAgentFunction -e events/test-event.json --env-vars .env; \
+	else \
+		echo "Warning: .env file not found. Run 'make setup-env' first."; \
+		sam local invoke BedrockAgentFunction -e events/test-event.json; \
+	fi
 
 logs:
 	sam logs -n BedrockAgentFunction --stack-name bedrock-agentcore-lambda-dev --tail

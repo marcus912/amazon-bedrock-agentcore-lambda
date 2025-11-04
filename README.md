@@ -45,7 +45,8 @@ This project deploys a Python Lambda function to invoke Amazon Bedrock AgentCore
 ```
 .
 ├── template.yaml              # SAM template with CodeDeploy config
-├── samconfig.toml            # SAM deployment configuration
+├── samconfig.toml            # AWS deployment configuration
+├── .env.example              # Local testing config template
 ├── Makefile                  # Convenience commands
 ├── requirements-dev.txt      # Development/testing dependencies
 ├── src/
@@ -65,45 +66,42 @@ This project deploys a Python Lambda function to invoke Amazon Bedrock AgentCore
 ### 1. Install Dependencies
 
 ```bash
-# Install SAM CLI (if not already installed globally)
-pip install aws-sam-cli
-
-# Install development dependencies for local testing
-pip install -r requirements-dev.txt
+make install
+# Or: pip install -r requirements-dev.txt
 ```
 
-### 2. Configure Your Agent ID
+### 2. Configuration
 
-Edit `samconfig.toml` and set your Bedrock Agent ID:
+#### For Local Testing
+```bash
+make setup-env
+# Edit .env with your Agent ID
+```
 
+#### For AWS Deployment
+Edit `samconfig.toml`:
 ```toml
-parameter_overrides = "Environment=\"dev\" BedrockAgentId=\"YOUR_AGENT_ID\" BedrockAgentAliasId=\"YOUR_ALIAS_ID\""
+parameter_overrides = "BedrockAgentId=\"YOUR_AGENT_ID\" BedrockAgentAliasId=\"YOUR_ALIAS_ID\""
 ```
 
-### 3. Build and Deploy
+### 3. Local Testing
 
 ```bash
-# Build the application
-sam build
+# Test locally with .env
+make invoke
 
-# Deploy to dev environment
-sam deploy --config-env dev
+# Run unit tests
+make test
+```
 
-# Or use the Makefile
+### 4. Deploy to AWS
+
+```bash
+# Dev environment
 make deploy-dev
-```
 
-### 4. Test Your Function
-
-```bash
-# Invoke locally
-sam local invoke BedrockAgentFunction -e events/test-event.json
-
-# Or directly invoke deployed function
-aws lambda invoke \
-  --function-name bedrock-agentcore-dev:live \
-  --payload '{"sessionId":"test","inputText":"Hello"}' \
-  response.json
+# Production
+make deploy-prod
 ```
 
 ## Deployment Options
@@ -354,47 +352,29 @@ Create a pipeline with:
 2. **Build**: CodeBuild with `sam build`
 3. **Deploy**: CloudFormation deploy action
 
-## Managing Dependencies
+## Configuration
 
-### Two Requirements Files
+### Local Testing (`.env`)
+- Copy `.env.example` to `.env`
+- Used by `sam local invoke` and `make invoke`
+- Git-ignored (safe for secrets)
 
-This project uses separate requirements files for different purposes:
+### AWS Deployment (`samconfig.toml`)
+- Edit `parameter_overrides` for each environment (dev/staging/prod)
+- Version controlled
+- Used by `sam deploy`
 
-#### `src/requirements.txt` - Lambda Runtime Dependencies
-- **Purpose**: Packages bundled with your Lambda deployment
-- **Note**: `boto3` and `botocore` are already included in Lambda Python runtime
-- **Only add**: Additional packages your Lambda needs at runtime
-  ```
-  # Example additions:
-  requests>=2.31.0
-  pydantic>=2.0.0
-  ```
+## Dependencies
 
-#### `requirements-dev.txt` - Development Dependencies
-- **Purpose**: Packages for local development and testing
-- **Includes**: pytest, boto3 (for local testing), and other dev tools
-- **Install with**: `pip install -r requirements-dev.txt`
+### `src/requirements.txt` - Lambda Runtime
+- Packages bundled with Lambda deployment
+- `boto3`/`botocore` already in Lambda runtime - don't add unless needed
+- Add: `requests`, `pydantic`, etc.
 
-### When to Add Dependencies
-
-**Add to `src/requirements.txt`** when:
-- Your Lambda code imports a package not in the standard library
-- You need a specific version newer than what's in Lambda runtime
-- Examples: `requests`, `pandas`, `pydantic`, etc.
-
-**Add to `requirements-dev.txt`** when:
-- You need a tool for development only (linters, formatters)
-- You need a package for testing locally
-- The package is NOT needed by Lambda at runtime
-
-### Lambda Runtime Included Packages
-
-AWS Lambda Python 3.12 runtime includes:
-- ✅ `boto3` and `botocore` (AWS SDK)
-- ✅ Standard library packages
-- ❌ Everything else must be in `src/requirements.txt`
-
-See [AWS Lambda Runtimes](https://docs.aws.amazon.com/lambda/latest/dg/lambda-runtimes.html) for details.
+### `requirements-dev.txt` - Local Development
+- For testing and development only
+- Includes: `pytest`, `boto3` (for local testing)
+- Install: `pip install -r requirements-dev.txt`
 
 ## Best Practices
 
