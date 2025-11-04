@@ -1,0 +1,231 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Bedrock AgentCore Lambda with CodeDeploy for safe A/B deployments
+
+Parameters:
+  BedrockAgentId:
+    Type: String
+    Description: The Bedrock Agent ID
+    Default: ""
+
+  BedrockAgentAliasId:
+    Type: String
+    Description: The Bedrock Agent Alias ID
+    Default: "TSTALIASID"
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Environment name
+
+Globals:
+  Function:
+    Timeout: 60
+    MemorySize: 512
+    Runtime: python3.12
+    Tracing: Active
+    Environment:
+      Variables:
+        ENVIRONMENT: !Ref Environment
+        BEDROCK_AGENT_ID: !Ref BedrockAgentId
+        BEDROCK_AGENT_ALIAS_ID: !Ref BedrockAgentAliasId
+
+Resources:
+  # Main Lambda Function
+  BedrockAgentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub bedrock-agentcore-${Environment}
+      CodeUri: src/
+      Handler: handler.lambda_handler
+      Description: Lambda function to invoke Bedrock AgentCore agent
+
+      # Auto-publish alias for CodeDeploy
+      AutoPublishAlias: live
+
+      # CodeDeploy Configuration
+      DeploymentPreference:
+        Type: Canary10Percent5Minutes
+        # Available types:
+        # - Canary10Percent30Minutes
+        # - Canary10Percent5Minutes
+        # - Canary10Percent10Minutes
+        # - Linear10PercentEvery10Minutes
+        # - Linear10PercentEvery1Minute
+        # - Linear10PercentEvery2Minutes
+        # - Linear10PercentEvery3Minutes
+        # - AllAtOnce
+
+        Alarms:
+          - !Ref FunctionErrorAlarm
+          - !Ref FunctionThrottleAlarm
+
+        Hooks:
+          PreTraffic: !Ref PreTrafficHook
+          PostTraffic: !Ref PostTrafficHook
+
+        # Rollback if alarms trigger
+        TriggerConfigurations:
+          - TriggerEvents:
+              - DeploymentFailure
+              - DeploymentStop
+            TriggerTargetArn: !Ref DeploymentTopic
+
+      # IAM Permissions
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeAgent
+                - bedrock:Retrieve
+                - bedrock:RetrieveAndGenerate
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - xray:PutTraceSegments
+                - xray:PutTelemetryRecords
+              Resource: '*'
+
+  # CloudWatch Alarms for Deployment Safety
+  FunctionErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${AWS::StackName}-errors
+      AlarmDescription: Triggers rollback if error rate is too high
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref BedrockAgentFunction
+        - Name: Resource
+          Value: !Sub ${BedrockAgentFunction}:live
+
+  FunctionThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${AWS::StackName}-throttles
+      AlarmDescription: Triggers rollback if throttling occurs
+      MetricName: Throttles
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 3
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref BedrockAgentFunction
+        - Name: Resource
+          Value: !Sub ${BedrockAgentFunction}:live
+
+  # Pre-Traffic Hook (runs before shifting traffic)
+  PreTrafficHook:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub CodeDeployHook_preTraffic_${Environment}
+      CodeUri: hooks/
+      Handler: pre_traffic.lambda_handler
+      Runtime: python3.12
+      Timeout: 60
+      Environment:
+        Variables:
+          TARGET_FUNCTION: !Ref BedrockAgentFunction
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - codedeploy:PutLifecycleEventHookExecutionStatus
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource: !GetAtt BedrockAgentFunction.Arn
+
+  # Post-Traffic Hook (runs after deployment completes)
+  PostTrafficHook:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub CodeDeployHook_postTraffic_${Environment}
+      CodeUri: hooks/
+      Handler: post_traffic.lambda_handler
+      Runtime: python3.12
+      Timeout: 60
+      Environment:
+        Variables:
+          TARGET_FUNCTION: !Ref BedrockAgentFunction
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - codedeploy:PutLifecycleEventHookExecutionStatus
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource: !GetAtt BedrockAgentFunction.Arn
+
+  # SNS Topic for Deployment Notifications
+  DeploymentTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub ${AWS::StackName}-deployments
+      DisplayName: Bedrock Lambda Deployment Notifications
+
+  # API Gateway (Optional - uncomment if you want HTTP endpoint)
+  # BedrockApi:
+  #   Type: AWS::Serverless::Api
+  #   Properties:
+  #     StageName: !Ref Environment
+  #     TracingEnabled: true
+
+  # BedrockAgentFunction:
+  #   Events:
+  #     ApiEvent:
+  #       Type: Api
+  #       Properties:
+  #         RestApiId: !Ref BedrockApi
+  #         Path: /invoke
+  #         Method: POST
+
+Outputs:
+  FunctionName:
+    Description: Lambda Function Name
+    Value: !Ref BedrockAgentFunction
+    Export:
+      Name: !Sub ${AWS::StackName}-FunctionName
+
+  FunctionArn:
+    Description: Lambda Function ARN
+    Value: !GetAtt BedrockAgentFunction.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-FunctionArn
+
+  FunctionVersion:
+    Description: Lambda Function Version with Alias
+    Value: !Ref BedrockAgentFunction.Version
+
+  LiveAlias:
+    Description: Lambda Live Alias for production traffic
+    Value: !Sub ${BedrockAgentFunction}:live
+
+  DeploymentTopicArn:
+    Description: SNS Topic for deployment notifications
+    Value: !Ref DeploymentTopic
