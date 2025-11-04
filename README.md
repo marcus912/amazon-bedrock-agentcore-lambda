@@ -47,9 +47,10 @@ This project deploys a Python Lambda function to invoke Amazon Bedrock AgentCore
 ├── template.yaml              # SAM template with CodeDeploy config
 ├── samconfig.toml            # SAM deployment configuration
 ├── Makefile                  # Convenience commands
+├── requirements-dev.txt      # Development/testing dependencies
 ├── src/
 │   ├── handler.py            # Main Lambda function
-│   └── requirements.txt      # Python dependencies
+│   └── requirements.txt      # Lambda runtime dependencies
 ├── hooks/
 │   ├── pre_traffic.py        # Pre-deployment validation
 │   └── post_traffic.py       # Post-deployment validation
@@ -64,7 +65,11 @@ This project deploys a Python Lambda function to invoke Amazon Bedrock AgentCore
 ### 1. Install Dependencies
 
 ```bash
-pip install aws-sam-cli boto3
+# Install SAM CLI (if not already installed globally)
+pip install aws-sam-cli
+
+# Install development dependencies for local testing
+pip install -r requirements-dev.txt
 ```
 
 ### 2. Configure Your Agent ID
@@ -349,6 +354,48 @@ Create a pipeline with:
 2. **Build**: CodeBuild with `sam build`
 3. **Deploy**: CloudFormation deploy action
 
+## Managing Dependencies
+
+### Two Requirements Files
+
+This project uses separate requirements files for different purposes:
+
+#### `src/requirements.txt` - Lambda Runtime Dependencies
+- **Purpose**: Packages bundled with your Lambda deployment
+- **Note**: `boto3` and `botocore` are already included in Lambda Python runtime
+- **Only add**: Additional packages your Lambda needs at runtime
+  ```
+  # Example additions:
+  requests>=2.31.0
+  pydantic>=2.0.0
+  ```
+
+#### `requirements-dev.txt` - Development Dependencies
+- **Purpose**: Packages for local development and testing
+- **Includes**: pytest, boto3 (for local testing), and other dev tools
+- **Install with**: `pip install -r requirements-dev.txt`
+
+### When to Add Dependencies
+
+**Add to `src/requirements.txt`** when:
+- Your Lambda code imports a package not in the standard library
+- You need a specific version newer than what's in Lambda runtime
+- Examples: `requests`, `pandas`, `pydantic`, etc.
+
+**Add to `requirements-dev.txt`** when:
+- You need a tool for development only (linters, formatters)
+- You need a package for testing locally
+- The package is NOT needed by Lambda at runtime
+
+### Lambda Runtime Included Packages
+
+AWS Lambda Python 3.12 runtime includes:
+- ✅ `boto3` and `botocore` (AWS SDK)
+- ✅ Standard library packages
+- ❌ Everything else must be in `src/requirements.txt`
+
+See [AWS Lambda Runtimes](https://docs.aws.amazon.com/lambda/latest/dg/lambda-runtimes.html) for details.
+
 ## Best Practices
 
 1. **Always test in dev first** before deploying to prod
@@ -357,6 +404,7 @@ Create a pipeline with:
 4. **Use X-Ray** to trace Bedrock API calls
 5. **Keep pre-traffic hooks fast** (< 60 seconds)
 6. **Test rollback procedures** in non-prod environments
+7. **Minimize Lambda dependencies** - smaller packages = faster cold starts
 
 ## Additional Resources
 
