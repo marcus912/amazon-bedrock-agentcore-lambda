@@ -3,19 +3,19 @@ version = 0.1
 [default]
 [default.deploy]
 [default.deploy.parameters]
-stack_name = "bedrock-agentcore-lambda"
-s3_prefix = "bedrock-agentcore-lambda"
+stack_name = "ses-email-handler"
+s3_prefix = "ses-email-handler"
 region = "us-west-2"
 capabilities = "CAPABILITY_IAM"
-parameter_overrides = "Environment=\"dev\" BedrockAgentId=\"\" BedrockAgentAliasId=\"TSTALIASID\""
+parameter_overrides = "Environment=\"dev\""
 confirm_changeset = true
 resolve_s3 = true
 
 [dev]
 [dev.deploy]
 [dev.deploy.parameters]
-stack_name = "bedrock-agentcore-lambda-dev"
-parameter_overrides = "Environment=\"dev\" BedrockAgentId=\"\" BedrockAgentAliasId=\"TSTALIASID\""
+stack_name = "ses-email-handler-dev"
+parameter_overrides = "Environment=\"dev\""
 capabilities = "CAPABILITY_IAM"
 confirm_changeset = true
 resolve_s3 = true
@@ -23,8 +23,8 @@ resolve_s3 = true
 [staging]
 [staging.deploy]
 [staging.deploy.parameters]
-stack_name = "bedrock-agentcore-lambda-staging"
-parameter_overrides = "Environment=\"staging\" BedrockAgentId=\"\" BedrockAgentAliasId=\"TSTALIASID\""
+stack_name = "ses-email-handler-staging"
+parameter_overrides = "Environment=\"staging\""
 capabilities = "CAPABILITY_IAM"
 confirm_changeset = false
 resolve_s3 = true
@@ -32,8 +32,8 @@ resolve_s3 = true
 [prod]
 [prod.deploy]
 [prod.deploy.parameters]
-stack_name = "bedrock-agentcore-lambda-prod"
-parameter_overrides = "Environment=\"prod\" BedrockAgentId=\"\" BedrockAgentAliasId=\"TSTALIASID\""
+stack_name = "ses-email-handler-prod"
+parameter_overrides = "Environment=\"prod\""
 capabilities = "CAPABILITY_IAM"
 confirm_changeset = true
 resolve_s3 = true

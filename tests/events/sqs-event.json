@@ -1,0 +1,20 @@
+{
+  "Records": [
+    {
+      "messageId": "test-message-id-123",
+      "receiptHandle": "test-receipt-handle",
+      "body": "{\"notificationType\":\"Received\",\"mail\":{\"timestamp\":\"2024-11-05T10:30:00.000Z\",\"source\":\"sender@example.com\",\"messageId\":\"test-ses-message-id\",\"destination\":[\"recipient@yourdomain.com\"],\"commonHeaders\":{\"returnPath\":\"sender@example.com\",\"from\":[\"sender@example.com\"],\"to\":[\"recipient@yourdomain.com\"],\"subject\":\"Test Email Subject\",\"messageId\":\"test-ses-message-id\",\"date\":\"Tue, 5 Nov 2024 10:30:00 +0000\"}},\"receipt\":{\"timestamp\":\"2024-11-05T10:30:00.000Z\",\"processingTimeMillis\":123,\"recipients\":[\"recipient@yourdomain.com\"],\"spamVerdict\":{\"status\":\"PASS\"},\"virusVerdict\":{\"status\":\"PASS\"},\"spfVerdict\":{\"status\":\"PASS\"},\"dkimVerdict\":{\"status\":\"PASS\"},\"dmarcVerdict\":{\"status\":\"PASS\"},\"action\":{\"type\":\"S3\",\"bucketName\":\"ses-emails-123456789012-dev\",\"objectKey\":\"test-email-key\"}}}",
+      "attributes": {
+        "ApproximateReceiveCount": "1",
+        "SentTimestamp": "1699180200000",
+        "SenderId": "AIDAIT2UOQQY3AUEKVGXU",
+        "ApproximateFirstReceiveTimestamp": "1699180200000"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "test-md5",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-west-2:123456789012:ses-email-queue-dev",
+      "awsRegion": "us-west-2"
+    }
+  ]
+}

@@ -1,18 +1,8 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: Bedrock AgentCore Lambda with CodeDeploy for safe A/B deployments
+Description: SES Email Handler Lambda - Process emails from SES via SQS
 
 Parameters:
-  BedrockAgentId:
-    Type: String
-    Description: The Bedrock Agent ID
-    Default: ""
-
-  BedrockAgentAliasId:
-    Type: String
-    Description: The Bedrock Agent Alias ID
-    Default: "TSTALIASID"
-
   Environment:
     Type: String
     Default: dev
@@ -24,56 +14,36 @@ Parameters:
 
 Globals:
   Function:
-    Timeout: 60
-    MemorySize: 512
+    Timeout: 30
+    MemorySize: 256
     Runtime: python3.12
     Tracing: Active
     Environment:
       Variables:
         ENVIRONMENT: !Ref Environment
-        BEDROCK_AGENT_ID: !Ref BedrockAgentId
-        BEDROCK_AGENT_ALIAS_ID: !Ref BedrockAgentAliasId
 
 Resources:
-  # Main Lambda Function
-  BedrockAgentFunction:
+  # SES Email Handler Lambda Function
+  SESEmailHandlerFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub bedrock-agentcore-${Environment}
+      FunctionName: !Sub ses-email-handler-${Environment}
       CodeUri: src/
-      Handler: handler.lambda_handler
-      Description: Lambda function to invoke Bedrock AgentCore agent
+      Handler: sqs_email_handler.lambda_handler
+      Description: Process emails from SES via SQS
+      Environment:
+        Variables:
+          SES_EMAIL_BUCKET: !Ref SESEmailBucket
 
-      # Auto-publish alias for CodeDeploy
-      AutoPublishAlias: live
-
-      # CodeDeploy Configuration
-      DeploymentPreference:
-        Type: Canary10Percent5Minutes
-        # Available types:
-        # - Canary10Percent30Minutes
-        # - Canary10Percent5Minutes
-        # - Canary10Percent10Minutes
-        # - Linear10PercentEvery10Minutes
-        # - Linear10PercentEvery1Minute
-        # - Linear10PercentEvery2Minutes
-        # - Linear10PercentEvery3Minutes
-        # - AllAtOnce
-
-        Alarms:
-          - !Ref FunctionErrorAlarm
-          - !Ref FunctionThrottleAlarm
-
-        Hooks:
-          PreTraffic: !Ref PreTrafficHook
-          PostTraffic: !Ref PostTrafficHook
-
-        # Rollback if alarms trigger
-        TriggerConfigurations:
-          - TriggerEvents:
-              - DeploymentFailure
-              - DeploymentStop
-            TriggerTargetArn: !Ref DeploymentTopic
+      # SQS Event Source
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt EmailQueue.Arn
+            BatchSize: 10
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
 
       # IAM Permissions
       Policies:
@@ -81,10 +51,14 @@ Resources:
           Statement:
             - Effect: Allow
               Action:
-                - bedrock:InvokeAgent
-                - bedrock:Retrieve
-                - bedrock:RetrieveAndGenerate
-              Resource: '*'
+                - s3:GetObject
+              Resource: !Sub arn:aws:s3:::${SESEmailBucket}/*
+            - Effect: Allow
+              Action:
+                - sqs:ReceiveMessage
+                - sqs:DeleteMessage
+                - sqs:GetQueueAttributes
+              Resource: !GetAtt EmailQueue.Arn
             - Effect: Allow
               Action:
                 - logs:CreateLogGroup
@@ -97,135 +71,98 @@ Resources:
                 - xray:PutTelemetryRecords
               Resource: '*'
 
-  # CloudWatch Alarms for Deployment Safety
-  FunctionErrorAlarm:
-    Type: AWS::CloudWatch::Alarm
+  # SQS Queue for SES notifications
+  EmailQueue:
+    Type: AWS::SQS::Queue
     Properties:
-      AlarmName: !Sub ${AWS::StackName}-errors
-      AlarmDescription: Triggers rollback if error rate is too high
-      MetricName: Errors
-      Namespace: AWS/Lambda
-      Statistic: Sum
-      Period: 60
-      EvaluationPeriods: 2
-      Threshold: 5
-      ComparisonOperator: GreaterThanThreshold
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref BedrockAgentFunction
-        - Name: Resource
-          Value: !Sub ${BedrockAgentFunction}:live
+      QueueName: !Sub ses-email-queue-${Environment}
+      VisibilityTimeout: 180  # 6x Lambda timeout (30s * 6)
+      MessageRetentionPeriod: 1209600  # 14 days
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt EmailDLQ.Arn
+        maxReceiveCount: 3
 
-  FunctionThrottleAlarm:
-    Type: AWS::CloudWatch::Alarm
+  # Dead Letter Queue for failed messages
+  EmailDLQ:
+    Type: AWS::SQS::Queue
     Properties:
-      AlarmName: !Sub ${AWS::StackName}-throttles
-      AlarmDescription: Triggers rollback if throttling occurs
-      MetricName: Throttles
-      Namespace: AWS/Lambda
-      Statistic: Sum
-      Period: 60
-      EvaluationPeriods: 2
-      Threshold: 3
-      ComparisonOperator: GreaterThanThreshold
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref BedrockAgentFunction
-        - Name: Resource
-          Value: !Sub ${BedrockAgentFunction}:live
+      QueueName: !Sub ses-email-dlq-${Environment}
+      MessageRetentionPeriod: 1209600  # 14 days
 
-  # Pre-Traffic Hook (runs before shifting traffic)
-  PreTrafficHook:
-    Type: AWS::Serverless::Function
+  # SQS Queue Policy (allows SES to send messages)
+  EmailQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
     Properties:
-      FunctionName: !Sub CodeDeployHook_preTraffic_${Environment}
-      CodeUri: hooks/
-      Handler: pre_traffic.lambda_handler
-      Runtime: python3.12
-      Timeout: 60
-      Environment:
-        Variables:
-          TARGET_FUNCTION: !Ref BedrockAgentFunction
-      Policies:
-        - Version: '2012-10-17'
-          Statement:
-            - Effect: Allow
-              Action:
-                - codedeploy:PutLifecycleEventHookExecutionStatus
-              Resource: '*'
-            - Effect: Allow
-              Action:
-                - lambda:InvokeFunction
-              Resource: !GetAtt BedrockAgentFunction.Arn
+      Queues:
+        - !Ref EmailQueue
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ses.amazonaws.com
+            Action:
+              - sqs:SendMessage
+            Resource: !GetAtt EmailQueue.Arn
+            Condition:
+              StringEquals:
+                aws:Referer: !Ref AWS::AccountId
 
-  # Post-Traffic Hook (runs after deployment completes)
-  PostTrafficHook:
-    Type: AWS::Serverless::Function
+  # S3 Bucket for SES emails
+  SESEmailBucket:
+    Type: AWS::S3::Bucket
     Properties:
-      FunctionName: !Sub CodeDeployHook_postTraffic_${Environment}
-      CodeUri: hooks/
-      Handler: post_traffic.lambda_handler
-      Runtime: python3.12
-      Timeout: 60
-      Environment:
-        Variables:
-          TARGET_FUNCTION: !Ref BedrockAgentFunction
-      Policies:
-        - Version: '2012-10-17'
-          Statement:
-            - Effect: Allow
-              Action:
-                - codedeploy:PutLifecycleEventHookExecutionStatus
-              Resource: '*'
-            - Effect: Allow
-              Action:
-                - lambda:InvokeFunction
-              Resource: !GetAtt BedrockAgentFunction.Arn
+      BucketName: !Sub ses-emails-${AWS::AccountId}-${Environment}
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldEmails
+            Status: Enabled
+            ExpirationInDays: 30  # Keep emails for 30 days
 
-  # SNS Topic for Deployment Notifications
-  DeploymentTopic:
-    Type: AWS::SNS::Topic
+  # Allow SES to write to S3
+  SESEmailBucketPolicy:
+    Type: AWS::S3::BucketPolicy
     Properties:
-      TopicName: !Sub ${AWS::StackName}-deployments
-      DisplayName: Bedrock Lambda Deployment Notifications
-
-  # API Gateway (Optional - uncomment if you want HTTP endpoint)
-  # BedrockApi:
-  #   Type: AWS::Serverless::Api
-  #   Properties:
-  #     StageName: !Ref Environment
-  #     TracingEnabled: true
-
-  # BedrockAgentFunction:
-  #   Events:
-  #     ApiEvent:
-  #       Type: Api
-  #       Properties:
-  #         RestApiId: !Ref BedrockApi
-  #         Path: /invoke
-  #         Method: POST
+      Bucket: !Ref SESEmailBucket
+      PolicyDocument:
+        Statement:
+          - Sid: AllowSESPuts
+            Effect: Allow
+            Principal:
+              Service: ses.amazonaws.com
+            Action:
+              - s3:PutObject
+            Resource: !Sub ${SESEmailBucket.Arn}/*
+            Condition:
+              StringEquals:
+                aws:Referer: !Ref AWS::AccountId
 
 Outputs:
-  FunctionName:
-    Description: Lambda Function Name
-    Value: !Ref BedrockAgentFunction
+  SESEmailHandlerFunctionName:
+    Description: SES Email Handler Lambda Function Name
+    Value: !Ref SESEmailHandlerFunction
     Export:
       Name: !Sub ${AWS::StackName}-FunctionName
 
-  FunctionArn:
-    Description: Lambda Function ARN
-    Value: !GetAtt BedrockAgentFunction.Arn
+  SESEmailHandlerFunctionArn:
+    Description: SES Email Handler Lambda Function ARN
+    Value: !GetAtt SESEmailHandlerFunction.Arn
     Export:
       Name: !Sub ${AWS::StackName}-FunctionArn
 
-  FunctionVersion:
-    Description: Lambda Function Version with Alias
-    Value: !Ref BedrockAgentFunction.Version
+  EmailQueueUrl:
+    Description: SQS Queue URL for email processing
+    Value: !Ref EmailQueue
+    Export:
+      Name: !Sub ${AWS::StackName}-EmailQueueUrl
 
-  LiveAlias:
-    Description: Lambda Live Alias for production traffic
-    Value: !Sub ${BedrockAgentFunction}:live
+  EmailQueueArn:
+    Description: SQS Queue ARN (use this in SES Receipt Rule)
+    Value: !GetAtt EmailQueue.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-EmailQueueArn
 
-  DeploymentTopicArn:
-    Description: SNS Topic for deployment notifications
-    Value: !Ref DeploymentTopic
+  SESEmailBucketName:
+    Description: S3 Bucket for SES emails (use this in SES Receipt Rule)
+    Value: !Ref SESEmailBucket
+    Export:
+      Name: !Sub ${AWS::StackName}-SESEmailBucketName

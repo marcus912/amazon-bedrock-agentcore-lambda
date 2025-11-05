@@ -1,64 +1,49 @@
-# Amazon Bedrock AgentCore Lambda with SAM + CodeDeploy
+# SES Email Handler Lambda
 
-This project deploys a Python Lambda function to invoke Amazon Bedrock AgentCore agents with **safe A/B testing and gradual rollout** using AWS SAM and CodeDeploy.
-
-## Features
-
-- **Automated Canary Deployments**: Shifts 10% traffic first, then gradually rolls out
-- **Automatic Rollback**: Monitors CloudWatch alarms and rolls back on errors
-- **Pre/Post-Deployment Hooks**: Validates new versions before and after traffic shift
-- **Multiple Environments**: Separate dev, staging, and prod configurations
-- **CloudWatch Monitoring**: Built-in alarms for errors and throttles
-- **X-Ray Tracing**: Distributed tracing enabled by default
+A simple AWS Lambda function that processes emails from Amazon SES via SQS. Emails are stored in S3, fetched by the Lambda, parsed, and processed according to your business logic.
 
 ## Architecture
 
 ```
-┌───────────────────────────────────────────────────────┐
-│                     CodeDeploy                        │
-│  ┌─────────────────────────────────────────────────┐  │
-│  │  1. Pre-Traffic Hook (Validation)               │  │
-│  │  2. Shift 10% traffic to new version            │  │
-│  │  3. Wait 5 minutes + Monitor CloudWatch         │  │
-│  │  4. If alarms trigger → Rollback                │  │
-│  │  5. Shift remaining 90% traffic                 │  │
-│  │  6. Post-Traffic Hook (Final validation)        │  │
-│  └─────────────────────────────────────────────────┘  │
-└───────────────────────────────────────────────────────┘
-           ↓                                    ↓
-    Lambda v1 (90%)                      Lambda v2 (10%)
-           ↓                                    ↓
-           └────────────────┬───────────────────┘
-                            ↓
-                   Bedrock AgentCore
+Amazon SES → S3 Bucket (email storage)
+            ↓
+            SQS Queue → Lambda Function
+            ↓
+            DLQ (failed messages)
 ```
+
+## Features
+
+- Automatic email processing from SES via SQS
+- Parse MIME emails (text, HTML, attachments)
+- S3 storage for email content
+- Dead Letter Queue for failed messages
+- Multiple environments (dev, staging, prod)
+- X-Ray tracing enabled
+- Comprehensive error handling
 
 ## Prerequisites
 
-1. **AWS CLI** configured with appropriate credentials
+1. **AWS CLI** configured with credentials
 2. **AWS SAM CLI** installed ([Installation Guide](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html))
 3. **Python 3.12** or later
-4. **Bedrock Agent** already created in AWS Bedrock
+4. **Amazon SES** verified domain or email address
 
 ## Project Structure
 
 ```
 .
-├── template.yaml              # SAM template with CodeDeploy config
-├── samconfig.toml            # AWS deployment configuration
-├── .env.example              # Local testing config template
-├── Makefile                  # Convenience commands
-├── requirements-dev.txt      # Development/testing dependencies
+├── template.yaml              # SAM template
+├── samconfig.toml            # Deployment configuration
 ├── src/
-│   ├── handler.py            # Main Lambda function
-│   └── requirements.txt      # Lambda runtime dependencies
-├── hooks/
-│   ├── pre_traffic.py        # Pre-deployment validation
-│   └── post_traffic.py       # Post-deployment validation
-├── events/
-│   └── test-event.json       # Sample test event
-└── tests/
-    └── test_handler.py       # Unit tests
+│   ├── sqs_email_handler.py  # Main Lambda function
+│   └── requirements.txt      # Lambda dependencies (currently empty)
+├── tests/
+│   ├── test_sqs_email_handler.py  # Unit tests
+│   └── events/
+│       └── sqs-event.json    # Sample SQS event
+├── requirements-dev.txt      # Development dependencies
+└── README.md                 # This file
 ```
 
 ## Quick Start
@@ -66,269 +51,335 @@ This project deploys a Python Lambda function to invoke Amazon Bedrock AgentCore
 ### 1. Install Dependencies
 
 ```bash
-make install
-# Or: pip install -r requirements-dev.txt
+pip install -r requirements-dev.txt
 ```
 
-### 2. Configuration
-
-#### For Local Testing
-```bash
-make setup-env
-# Edit .env with your Agent ID
-```
-
-#### For AWS Deployment
-Edit `samconfig.toml`:
-```toml
-parameter_overrides = "BedrockAgentId=\"YOUR_AGENT_ID\" BedrockAgentAliasId=\"YOUR_ALIAS_ID\""
-```
-
-### 3. Local Testing
+### 2. Deploy to AWS
 
 ```bash
-# Test locally with .env
-make invoke
+# Build the application
+sam build
 
-# Run unit tests
-make test
+# Deploy to dev environment
+sam deploy --config-env dev
+
+# Or deploy to prod
+sam deploy --config-env prod
 ```
 
-### 4. Deploy to AWS
+The deployment will create:
+- Lambda function: `ses-email-handler-{env}`
+- SQS Queue: `ses-email-queue-{env}`
+- Dead Letter Queue: `ses-email-dlq-{env}`
+- S3 Bucket: `ses-emails-{AccountId}-{env}`
+
+### 3. Configure SES Receipt Rule
+
+After deployment, configure SES to send emails to the created resources:
 
 ```bash
-# Dev environment
-make deploy-dev
-
-# Production
-make deploy-prod
+# Get the stack outputs
+aws cloudformation describe-stacks \
+  --stack-name ses-email-handler-dev \
+  --query 'Stacks[0].Outputs'
 ```
 
-## Deployment Options
+Create an SES Receipt Rule:
 
-### Development (Quick Iterations)
+1. Go to SES Console → Email receiving → Receipt rules
+2. Create a new rule set (or use existing)
+3. Add rule with:
+   - **Recipients**: Your verified domain/email
+   - **Actions**:
+     - **S3 Action**: Use bucket name from stack output `SESEmailBucketName`
+     - **SQS Action**: Use queue ARN from stack output `EmailQueueArn`
+
+Or use AWS CLI:
 
 ```bash
-make deploy-dev
+# Variables from stack outputs
+BUCKET_NAME=$(aws cloudformation describe-stacks --stack-name ses-email-handler-dev --query 'Stacks[0].Outputs[?OutputKey==`SESEmailBucketName`].OutputValue' --output text)
+QUEUE_ARN=$(aws cloudformation describe-stacks --stack-name ses-email-handler-dev --query 'Stacks[0].Outputs[?OutputKey==`EmailQueueArn`].OutputValue' --output text)
+
+# Create receipt rule (adjust to your needs)
+aws ses create-receipt-rule \
+  --rule-set-name my-rule-set \
+  --rule '{
+    "Name": "process-emails",
+    "Enabled": true,
+    "Recipients": ["your-email@yourdomain.com"],
+    "Actions": [
+      {
+        "S3Action": {
+          "BucketName": "'$BUCKET_NAME'"
+        }
+      },
+      {
+        "SQSAction": {
+          "QueueArn": "'$QUEUE_ARN'"
+        }
+      }
+    ]
+  }'
 ```
 
-- Confirms changeset before deploying
-- Uses `Canary10Percent5Minutes` (10% for 5 min, then 100%)
+## Local Testing
 
-### Staging (Pre-Production Testing)
+### Run Tests
 
 ```bash
-make deploy-staging
+# Run all tests
+pytest tests/ -v
+
+# Run with coverage
+pytest tests/ -v --cov=src --cov-report=html
 ```
 
-- No confirmation required (faster)
-- Same canary deployment as dev
-
-### Production (Safe Rollout)
+### Invoke Locally
 
 ```bash
-make deploy-prod
+# Invoke with sample event
+sam local invoke SESEmailHandlerFunction -e tests/events/sqs-event.json
+
+# Note: Local invocation will fail on S3 fetch unless you:
+# 1. Have AWS credentials configured
+# 2. Have the S3 object available
+# 3. Or mock the S3 call in your test
 ```
 
-- Requires changeset confirmation
-- Monitors error and throttle alarms
-- Automatic rollback on issues
+## Customization
 
-## Canary Deployment Types
+### Add Your Business Logic
 
-You can change the deployment strategy in `template.yaml`:
+Edit `src/sqs_email_handler.py` in the `process_email()` function (around line 286):
 
-```yaml
-DeploymentPreference:
-  Type: Canary10Percent5Minutes  # Change this
+```python
+def process_email(
+    subject: str,
+    from_address: str,
+    to_addresses: list,
+    timestamp: str,
+    text_body: str,
+    html_body: str,
+    attachments: list,
+    ses_notification: dict
+) -> None:
+    """Add your business logic here."""
+
+    # Example 1: Save to DynamoDB
+    # save_to_dynamodb({...})
+
+    # Example 2: Create support ticket
+    # if 'bug' in subject.lower():
+    #     create_support_ticket({...})
+
+    # Example 3: Extract product info
+    # product_info = extract_product_details(body)
+
+    # Example 4: Send to Slack
+    # send_to_slack(channel='#support', message=f'New email: {subject}')
 ```
 
-Available options:
-- `Canary10Percent5Minutes` - 10% for 5 min, then 90%
-- `Canary10Percent10Minutes` - 10% for 10 min, then 90%
-- `Canary10Percent30Minutes` - 10% for 30 min, then 90%
-- `Linear10PercentEvery1Minute` - +10% every minute
-- `Linear10PercentEvery10Minutes` - +10% every 10 minutes
-- `AllAtOnce` - Immediate deployment (no canary)
+### Add Lambda Dependencies
 
-## A/B Testing with Lambda Aliases
+If you need additional packages (e.g., `requests`, `pydantic`):
 
-After deployment, you can manually control traffic split:
+1. Edit `src/requirements.txt`:
+   ```
+   requests>=2.31.0
+   pydantic>=2.0.0
+   ```
 
-```bash
-# Get the latest two versions
-FUNCTION_NAME="bedrock-agentcore-dev"
-VERSION_1=$(aws lambda list-versions-by-function --function-name $FUNCTION_NAME --query 'Versions[-2].Version' --output text)
-VERSION_2=$(aws lambda list-versions-by-function --function-name $FUNCTION_NAME --query 'Versions[-1].Version' --output text)
-
-# Split traffic: 80% to v1, 20% to v2
-aws lambda update-alias \
-  --function-name $FUNCTION_NAME \
-  --name live \
-  --routing-config "AdditionalVersionWeights={\"$VERSION_2\"=0.2}"
-
-# Shift more traffic to v2
-aws lambda update-alias \
-  --function-name $FUNCTION_NAME \
-  --name live \
-  --routing-config "AdditionalVersionWeights={\"$VERSION_2\"=0.5}"
-
-# Complete rollout to v2
-aws lambda update-alias \
-  --function-name $FUNCTION_NAME \
-  --name live \
-  --function-version $VERSION_2 \
-  --routing-config "{}"
-```
+2. Rebuild and redeploy:
+   ```bash
+   sam build
+   sam deploy --config-env dev
+   ```
 
 ## Monitoring
 
 ### View Logs
 
 ```bash
-# Tail logs for dev environment
-sam logs -n BedrockAgentFunction --stack-name bedrock-agentcore-lambda-dev --tail
+# Tail logs in real-time
+sam logs -n SESEmailHandlerFunction --stack-name ses-email-handler-dev --tail
 
 # Or use AWS CLI
-aws logs tail /aws/lambda/bedrock-agentcore-dev --follow
+aws logs tail /aws/lambda/ses-email-handler-dev --follow
 ```
 
-### Check CloudWatch Alarms
+### Check SQS Queue
 
 ```bash
-# List alarms
-aws cloudwatch describe-alarms --alarm-name-prefix bedrock-agentcore
+# Get queue URL
+QUEUE_URL=$(aws cloudformation describe-stacks \
+  --stack-name ses-email-handler-dev \
+  --query 'Stacks[0].Outputs[?OutputKey==`EmailQueueUrl`].OutputValue' \
+  --output text)
 
-# Check alarm history
-aws cloudwatch describe-alarm-history --alarm-name bedrock-agentcore-lambda-dev-errors
+# Check queue attributes
+aws sqs get-queue-attributes \
+  --queue-url $QUEUE_URL \
+  --attribute-names All
+
+# Check DLQ for failed messages
+DLQ_URL=$(aws sqs get-queue-url --queue-name ses-email-dlq-dev --query 'QueueUrl' --output text)
+aws sqs receive-message --queue-url $DLQ_URL
 ```
 
-### View Deployment Status
+### X-Ray Tracing
 
-```bash
-# List deployments
-aws deploy list-deployments --application-name bedrock-agentcore-lambda-dev
+View traces in AWS X-Ray console to analyze:
+- Lambda execution time
+- S3 fetch latency
+- Error traces
 
-# Get deployment details
-aws deploy get-deployment --deployment-id d-XXXXX
+## Configuration
+
+### Environments
+
+The project supports three environments configured in `samconfig.toml`:
+
+- **dev**: Development (requires confirmation before deploy)
+- **staging**: Pre-production (auto-confirms changes)
+- **prod**: Production (requires confirmation)
+
+### Parameters
+
+Edit `samconfig.toml` to customize:
+
+```toml
+[dev.deploy.parameters]
+stack_name = "ses-email-handler-dev"
+parameter_overrides = "Environment=\"dev\""
+region = "us-west-2"  # Change region here
 ```
 
-## Testing
+### Lambda Configuration
 
-### Run Unit Tests
-
-```bash
-# Install test dependencies
-pip install pytest pytest-mock
-
-# Run tests
-pytest tests/ -v
-```
-
-### Load Testing
-
-For A/B testing validation, you can use tools like:
-
-```bash
-# Simple load test with parallel requests
-seq 1 100 | xargs -I {} -P 10 aws lambda invoke \
-  --function-name bedrock-agentcore-dev:live \
-  --payload '{"sessionId":"test-{}","inputText":"Hello"}' \
-  /dev/null
-```
-
-## Rollback
-
-If a deployment fails, CodeDeploy automatically rolls back. To manually rollback:
-
-```bash
-# Get deployment ID
-DEPLOYMENT_ID=$(aws deploy list-deployments --application-name bedrock-agentcore-lambda-dev --query 'deployments[0]' --output text)
-
-# Stop deployment (triggers rollback)
-aws deploy stop-deployment --deployment-id $DEPLOYMENT_ID --auto-rollback-enabled
-```
-
-## Cost Considerations
-
-- **Lambda**: Pay per request + duration
-- **CodeDeploy**: Free for Lambda
-- **CloudWatch**: Logs + Alarms (minimal cost)
-- **X-Ray**: Pay per trace recorded
-- **Bedrock**: Pay per API call + tokens
-
-Canary deployments temporarily run two versions, but cost impact is minimal.
-
-## Customization
-
-### Modify Deployment Hooks
-
-Edit `hooks/pre_traffic.py` to add custom validation:
-
-```python
-# Add your custom tests
-def validate_bedrock_response(response):
-    # Check response quality
-    # Validate latency
-    # Test specific scenarios
-    pass
-```
-
-### Add CloudWatch Alarms
-
-In `template.yaml`, add custom alarms:
+Edit `template.yaml` to adjust:
 
 ```yaml
-DurationAlarm:
-  Type: AWS::CloudWatch::Alarm
-  Properties:
-    MetricName: Duration
-    Threshold: 30000  # 30 seconds
-    ComparisonOperator: GreaterThanThreshold
+Globals:
+  Function:
+    Timeout: 30          # Execution timeout
+    MemorySize: 256      # Memory allocation
+    Runtime: python3.12  # Python version
 ```
 
-### Enable API Gateway
+## Deployment
 
-Uncomment the API Gateway section in `template.yaml` to expose HTTP endpoint:
+### Deploy to Different Environments
 
-```yaml
-BedrockApi:
-  Type: AWS::Serverless::Api
-  Properties:
-    StageName: !Ref Environment
+```bash
+# Development
+sam build && sam deploy --config-env dev
+
+# Staging
+sam build && sam deploy --config-env staging
+
+# Production
+sam build && sam deploy --config-env prod
+```
+
+### Update Existing Stack
+
+```bash
+# Build
+sam build
+
+# Deploy (will show changes for confirmation)
+sam deploy --config-env prod
+```
+
+### Delete Stack
+
+```bash
+# Delete development stack
+aws cloudformation delete-stack --stack-name ses-email-handler-dev
+
+# Note: S3 bucket must be empty first
+BUCKET_NAME=$(aws cloudformation describe-stacks --stack-name ses-email-handler-dev --query 'Stacks[0].Outputs[?OutputKey==`SESEmailBucketName`].OutputValue' --output text)
+aws s3 rm s3://$BUCKET_NAME --recursive
+aws cloudformation delete-stack --stack-name ses-email-handler-dev
 ```
 
 ## Troubleshooting
 
-### Deployment Failed
+### Lambda Not Receiving Messages
 
-Check CloudWatch Logs:
+1. Check SES Receipt Rule is active:
+   ```bash
+   aws ses describe-receipt-rule-set --rule-set-name my-rule-set
+   ```
+
+2. Verify SQS permissions allow SES to send:
+   ```bash
+   aws sqs get-queue-attributes --queue-url $QUEUE_URL --attribute-names Policy
+   ```
+
+3. Check CloudWatch Logs for errors:
+   ```bash
+   aws logs tail /aws/lambda/ses-email-handler-dev --follow
+   ```
+
+### S3 Access Denied
+
+Ensure Lambda has permission to read from S3 bucket:
+- Lambda execution role includes `s3:GetObject` permission
+- S3 bucket policy allows SES to write: `s3:PutObject`
+
+### Messages in DLQ
+
+Check the Dead Letter Queue for failed messages:
+
 ```bash
-sam logs -n BedrockAgentFunction --stack-name bedrock-agentcore-lambda-dev
+# Get DLQ messages
+DLQ_URL=$(aws sqs get-queue-url --queue-name ses-email-dlq-dev --query 'QueueUrl' --output text)
+aws sqs receive-message --queue-url $DLQ_URL --max-number-of-messages 10
+
+# Process and delete a message
+aws sqs delete-message --queue-url $DLQ_URL --receipt-handle "RECEIPT_HANDLE"
 ```
 
-### Pre-Traffic Hook Failed
+### Test Email Processing
 
-The hook validates the new version before traffic shift. Check:
-1. Lambda has correct IAM permissions for Bedrock
-2. Agent ID and Alias ID are correct
-3. Hook function logs for specific errors
+Send a test email to your configured recipient address:
 
-### Automatic Rollback Triggered
-
-Check which alarm triggered:
 ```bash
-aws cloudwatch describe-alarm-history \
-  --alarm-name bedrock-agentcore-lambda-dev-errors \
-  --start-date 2024-01-01
+# If using SES sandbox, both sender and recipient must be verified
+aws ses send-email \
+  --from verified-sender@yourdomain.com \
+  --to your-recipient@yourdomain.com \
+  --subject "Test Email" \
+  --text "This is a test email for Lambda processing."
 ```
+
+## Cost Considerations
+
+- **Lambda**: Pay per invocation and duration (~$0.20 per 1M requests)
+- **SQS**: First 1M requests/month free, then $0.40 per 1M
+- **S3**: Storage ($0.023/GB) + requests
+- **CloudWatch**: Logs and metrics (minimal)
+- **X-Ray**: $5 per 1M traces recorded
+
+Estimated cost for 10,000 emails/month: < $1
+
+## Security Best Practices
+
+1. **Verify SES Senders**: Only accept emails from verified domains
+2. **Scan for Viruses**: SES virus scanning is enabled by default
+3. **Monitor DLQ**: Set up CloudWatch alarms for DLQ depth
+4. **Encrypt S3**: Enable S3 encryption at rest (add to template.yaml)
+5. **Least Privilege**: Lambda has minimal required permissions
 
 ## CI/CD Integration
 
 ### GitHub Actions Example
 
 ```yaml
-name: Deploy Lambda
+name: Deploy SES Email Handler
+
 on:
   push:
     branches: [main]
@@ -339,59 +390,24 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: aws-actions/setup-sam@v2
-      - name: Deploy
+      - uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-west-2
+
+      - name: Build and Deploy
         run: |
           sam build
           sam deploy --config-env prod --no-confirm-changeset
 ```
 
-### AWS CodePipeline
-
-Create a pipeline with:
-1. **Source**: GitHub/CodeCommit
-2. **Build**: CodeBuild with `sam build`
-3. **Deploy**: CloudFormation deploy action
-
-## Configuration
-
-### Local Testing (`.env`)
-- Copy `.env.example` to `.env`
-- Used by `sam local invoke` and `make invoke`
-- Git-ignored (safe for secrets)
-
-### AWS Deployment (`samconfig.toml`)
-- Edit `parameter_overrides` for each environment (dev/staging/prod)
-- Version controlled
-- Used by `sam deploy`
-
-## Dependencies
-
-### `src/requirements.txt` - Lambda Runtime
-- Packages bundled with Lambda deployment
-- `boto3`/`botocore` already in Lambda runtime - don't add unless needed
-- Add: `requests`, `pydantic`, etc.
-
-### `requirements-dev.txt` - Local Development
-- For testing and development only
-- Includes: `pytest`, `boto3` (for local testing)
-- Install: `pip install -r requirements-dev.txt`
-
-## Best Practices
-
-1. **Always test in dev first** before deploying to prod
-2. **Monitor CloudWatch Logs** during canary deployments
-3. **Set appropriate alarm thresholds** for your traffic patterns
-4. **Use X-Ray** to trace Bedrock API calls
-5. **Keep pre-traffic hooks fast** (< 60 seconds)
-6. **Test rollback procedures** in non-prod environments
-7. **Minimize Lambda dependencies** - smaller packages = faster cold starts
-
 ## Additional Resources
 
 - [AWS SAM Documentation](https://docs.aws.amazon.com/serverless-application-model/)
-- [CodeDeploy for Lambda](https://docs.aws.amazon.com/codedeploy/latest/userguide/deployment-steps-lambda.html)
-- [Bedrock Agent Runtime API](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_agent-runtime_InvokeAgent.html)
-- [Lambda Aliases](https://docs.aws.amazon.com/lambda/latest/dg/configuration-aliases.html)
+- [Amazon SES Developer Guide](https://docs.aws.amazon.com/ses/latest/dg/)
+- [SQS Lambda Integration](https://docs.aws.amazon.com/lambda/latest/dg/with-sqs.html)
+- [Python Email Parser](https://docs.python.org/3/library/email.parser.html)
 
 ## License
 
