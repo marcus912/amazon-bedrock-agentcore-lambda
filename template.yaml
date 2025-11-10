@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: SES Email Handler Lambda - Process emails from SES via SQS
+Description: Amazon Bedrock AgentCore Lambda Functions - Collection of Lambda functions for Bedrock workflows
 
 Parameters:
   Environment:
@@ -16,7 +16,7 @@ Globals:
   Function:
     Timeout: 30
     MemorySize: 256
-    Runtime: python3.12
+    Runtime: python3.13
     Tracing: Active
     Environment:
       Variables:

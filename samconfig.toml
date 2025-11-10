@@ -3,8 +3,8 @@ version = 0.1
 [default]
 [default.deploy]
 [default.deploy.parameters]
-stack_name = "ses-email-handler"
-s3_prefix = "ses-email-handler"
+stack_name = "bedrock-agentcore-lambda"
+s3_prefix = "bedrock-agentcore-lambda"
 region = "us-west-2"
 capabilities = "CAPABILITY_IAM"
 parameter_overrides = "Environment=\"dev\""
@@ -14,7 +14,7 @@ resolve_s3 = true
 [dev]
 [dev.deploy]
 [dev.deploy.parameters]
-stack_name = "ses-email-handler-dev"
+stack_name = "bedrock-agentcore-lambda-dev"
 parameter_overrides = "Environment=\"dev\""
 capabilities = "CAPABILITY_IAM"
 confirm_changeset = true
@@ -23,7 +23,7 @@ resolve_s3 = true
 [staging]
 [staging.deploy]
 [staging.deploy.parameters]
-stack_name = "ses-email-handler-staging"
+stack_name = "bedrock-agentcore-lambda-staging"
 parameter_overrides = "Environment=\"staging\""
 capabilities = "CAPABILITY_IAM"
 confirm_changeset = false
@@ -32,7 +32,7 @@ resolve_s3 = true
 [prod]
 [prod.deploy]
 [prod.deploy.parameters]
-stack_name = "ses-email-handler-prod"
+stack_name = "bedrock-agentcore-lambda-prod"
 parameter_overrides = "Environment=\"prod\""
 capabilities = "CAPABILITY_IAM"
 confirm_changeset = true

@@ -1,413 +1,300 @@
-# SES Email Handler Lambda
+# Amazon Bedrock AgentCore Lambda Functions
 
-A simple AWS Lambda function that processes emails from Amazon SES via SQS. Emails are stored in S3, fetched by the Lambda, parsed, and processed according to your business logic.
+A collection of AWS Lambda functions for Amazon Bedrock AgentCore workflows, deployed and managed using AWS SAM (Serverless Application Model).
 
-## Architecture
+## Overview
 
-```
-Amazon SES → S3 Bucket (email storage)
-            ↓
-            SQS Queue → Lambda Function
-            ↓
-            DLQ (failed messages)
-```
+This project contains multiple Lambda functions that support various Bedrock AgentCore operations:
+
+- **SES Email Handler**: Process emails from Amazon SES via SQS (parse, extract, process)
+- _More Lambda functions coming soon..._
 
 ## Features
 
-- Automatic email processing from SES via SQS
-- Parse MIME emails (text, HTML, attachments)
-- S3 storage for email content
-- Dead Letter Queue for failed messages
-- Multiple environments (dev, staging, prod)
+- Multi-function architecture with shared infrastructure
+- Environment support (dev, staging, prod)
+- Infrastructure as Code via SAM
+- Comprehensive unit tests
 - X-Ray tracing enabled
-- Comprehensive error handling
+- Cost optimized
 
 ## Prerequisites
 
-1. **AWS CLI** configured with credentials
-2. **AWS SAM CLI** installed ([Installation Guide](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html))
-3. **Python 3.12** or later
-4. **Amazon SES** verified domain or email address
+- [uv](https://docs.astral.sh/uv/) - Python package and project manager
+- AWS CLI configured with credentials
+- Python 3.13+
+- Amazon Bedrock access
+- Amazon SES verified domain (for email handler)
 
 ## Project Structure
 
 ```
 .
-├── template.yaml              # SAM template
+├── template.yaml              # SAM template (all Lambda functions)
 ├── samconfig.toml            # Deployment configuration
+├── pyproject.toml            # Python project config (uv)
+├── uv.lock                   # Locked dependencies
 ├── src/
-│   ├── sqs_email_handler.py  # Main Lambda function
-│   └── requirements.txt      # Lambda dependencies (currently empty)
-├── tests/
-│   ├── test_sqs_email_handler.py  # Unit tests
-│   └── events/
-│       └── sqs-event.json    # Sample SQS event
-├── requirements-dev.txt      # Development dependencies
-└── README.md                 # This file
+│   ├── sqs_email_handler.py  # SES email processing Lambda
+│   ├── requirements.txt      # Shared Lambda dependencies
+│   └── ...                    # Additional Lambda functions
+└── tests/
+    ├── test_sqs_email_handler.py
+    ├── events/
+    └── ...
 ```
 
 ## Quick Start
 
-### 1. Install Dependencies
+### Setup
+
+Install dependencies and tools:
 
 ```bash
-pip install -r requirements-dev.txt
+# Install Python dependencies
+uv sync --extra dev
+
+# Install AWS SAM CLI (if not already installed)
+uv tool install aws-sam-cli
 ```
 
-### 2. Deploy to AWS
+### Deploy
 
 ```bash
-# Build the application
-sam build
+# Build
+uv tool run sam build
 
-# Deploy to dev environment
-sam deploy --config-env dev
+# Deploy to dev
+uv tool run sam deploy --config-env dev
 
-# Or deploy to prod
-sam deploy --config-env prod
+# Deploy to prod
+uv tool run sam deploy --config-env prod
 ```
 
-The deployment will create:
-- Lambda function: `ses-email-handler-{env}`
+### Verify Deployment
+
+```bash
+aws cloudformation describe-stack-resources \
+  --stack-name bedrock-agentcore-lambda-dev \
+  --query 'StackResources[?ResourceType==`AWS::Lambda::Function`].[LogicalResourceId,PhysicalResourceId]' \
+  --output table
+```
+
+## Lambda Functions
+
+### SES Email Handler
+
+Processes emails from Amazon SES via SQS, parses MIME content, and executes business logic.
+
+**Resources:**
+- Lambda: `ses-email-handler-{env}`
 - SQS Queue: `ses-email-queue-{env}`
-- Dead Letter Queue: `ses-email-dlq-{env}`
+- DLQ: `ses-email-dlq-{env}`
 - S3 Bucket: `ses-emails-{AccountId}-{env}`
 
-### 3. Configure SES Receipt Rule
+**Post-Deployment Setup:**
 
-After deployment, configure SES to send emails to the created resources:
+Configure SES Receipt Rule to send emails to the created SQS queue and S3 bucket. See stack outputs for ARNs:
 
 ```bash
-# Get the stack outputs
 aws cloudformation describe-stacks \
-  --stack-name ses-email-handler-dev \
+  --stack-name bedrock-agentcore-lambda-dev \
   --query 'Stacks[0].Outputs'
 ```
 
-Create an SES Receipt Rule:
+**Customization:**
 
-1. Go to SES Console → Email receiving → Receipt rules
-2. Create a new rule set (or use existing)
-3. Add rule with:
-   - **Recipients**: Your verified domain/email
-   - **Actions**:
-     - **S3 Action**: Use bucket name from stack output `SESEmailBucketName`
-     - **SQS Action**: Use queue ARN from stack output `EmailQueueArn`
+Edit `src/sqs_email_handler.py` function `process_email()` (line 241) to add your business logic.
 
-Or use AWS CLI:
+**Monitoring:**
 
 ```bash
-# Variables from stack outputs
-BUCKET_NAME=$(aws cloudformation describe-stacks --stack-name ses-email-handler-dev --query 'Stacks[0].Outputs[?OutputKey==`SESEmailBucketName`].OutputValue' --output text)
-QUEUE_ARN=$(aws cloudformation describe-stacks --stack-name ses-email-handler-dev --query 'Stacks[0].Outputs[?OutputKey==`EmailQueueArn`].OutputValue' --output text)
+# View logs
+uv tool run sam logs -n SESEmailHandlerFunction --stack-name bedrock-agentcore-lambda-dev --tail
 
-# Create receipt rule (adjust to your needs)
-aws ses create-receipt-rule \
-  --rule-set-name my-rule-set \
-  --rule '{
-    "Name": "process-emails",
-    "Enabled": true,
-    "Recipients": ["your-email@yourdomain.com"],
-    "Actions": [
-      {
-        "S3Action": {
-          "BucketName": "'$BUCKET_NAME'"
-        }
-      },
-      {
-        "SQSAction": {
-          "QueueArn": "'$QUEUE_ARN'"
-        }
-      }
-    ]
-  }'
+# Check queue depth
+QUEUE_URL=$(aws cloudformation describe-stacks --stack-name bedrock-agentcore-lambda-dev --query 'Stacks[0].Outputs[?OutputKey==`EmailQueueUrl`].OutputValue' --output text)
+aws sqs get-queue-attributes --queue-url $QUEUE_URL --attribute-names ApproximateNumberOfMessages
 ```
 
-## Local Testing
+### _Additional Functions_
 
-### Run Tests
+_Documentation for additional Lambda functions will be added as they are implemented._
+
+## Development
+
+### Adding a New Lambda Function
+
+1. Create handler file in `src/my_new_handler.py`
+2. Add function resource to `template.yaml`
+3. Create tests in `tests/test_my_new_handler.py` and `tests/events/my-new-event.json`
+4. Add outputs to `template.yaml`
+5. Build, test, deploy: `uv tool run sam build && uv run pytest tests/ -v && uv tool run sam deploy --config-env dev`
+
+### Running Tests
 
 ```bash
-# Run all tests
-pytest tests/ -v
+# All tests
+uv run pytest tests/ -v
 
-# Run with coverage
-pytest tests/ -v --cov=src --cov-report=html
+# Specific test
+uv run pytest tests/test_sqs_email_handler.py -v
+
+# With coverage
+uv run pytest tests/ --cov=src --cov-report=html
 ```
 
-### Invoke Locally
+### Local Testing
 
 ```bash
-# Invoke with sample event
-sam local invoke SESEmailHandlerFunction -e tests/events/sqs-event.json
-
-# Note: Local invocation will fail on S3 fetch unless you:
-# 1. Have AWS credentials configured
-# 2. Have the S3 object available
-# 3. Or mock the S3 call in your test
+# Invoke function locally
+uv tool run sam local invoke SESEmailHandlerFunction -e tests/events/sqs-event.json
 ```
 
-## Customization
+### Adding Dependencies
 
-### Add Your Business Logic
-
-Edit `src/sqs_email_handler.py` in the `process_email()` function (around line 286):
-
-```python
-def process_email(
-    subject: str,
-    from_address: str,
-    to_addresses: list,
-    timestamp: str,
-    text_body: str,
-    html_body: str,
-    attachments: list,
-    ses_notification: dict
-) -> None:
-    """Add your business logic here."""
-
-    # Example 1: Save to DynamoDB
-    # save_to_dynamodb({...})
-
-    # Example 2: Create support ticket
-    # if 'bug' in subject.lower():
-    #     create_support_ticket({...})
-
-    # Example 3: Extract product info
-    # product_info = extract_product_details(body)
-
-    # Example 4: Send to Slack
-    # send_to_slack(channel='#support', message=f'New email: {subject}')
-```
-
-### Add Lambda Dependencies
-
-If you need additional packages (e.g., `requests`, `pydantic`):
-
-1. Edit `src/requirements.txt`:
-   ```
-   requests>=2.31.0
-   pydantic>=2.0.0
-   ```
-
-2. Rebuild and redeploy:
-   ```bash
-   sam build
-   sam deploy --config-env dev
-   ```
-
-## Monitoring
-
-### View Logs
+For development dependencies, add to `pyproject.toml` under `[project.optional-dependencies]`, then sync:
 
 ```bash
-# Tail logs in real-time
-sam logs -n SESEmailHandlerFunction --stack-name ses-email-handler-dev --tail
-
-# Or use AWS CLI
-aws logs tail /aws/lambda/ses-email-handler-dev --follow
+uv sync --extra dev
 ```
 
-### Check SQS Queue
+For Lambda runtime dependencies, add to `src/requirements.txt`, then rebuild:
 
 ```bash
-# Get queue URL
-QUEUE_URL=$(aws cloudformation describe-stacks \
-  --stack-name ses-email-handler-dev \
-  --query 'Stacks[0].Outputs[?OutputKey==`EmailQueueUrl`].OutputValue' \
-  --output text)
-
-# Check queue attributes
-aws sqs get-queue-attributes \
-  --queue-url $QUEUE_URL \
-  --attribute-names All
-
-# Check DLQ for failed messages
-DLQ_URL=$(aws sqs get-queue-url --queue-name ses-email-dlq-dev --query 'QueueUrl' --output text)
-aws sqs receive-message --queue-url $DLQ_URL
+uv tool run sam build
+uv tool run sam deploy --config-env dev
 ```
-
-### X-Ray Tracing
-
-View traces in AWS X-Ray console to analyze:
-- Lambda execution time
-- S3 fetch latency
-- Error traces
 
 ## Configuration
 
 ### Environments
 
-The project supports three environments configured in `samconfig.toml`:
+Three environments configured in `samconfig.toml`:
 
-- **dev**: Development (requires confirmation before deploy)
-- **staging**: Pre-production (auto-confirms changes)
+- **dev**: Development (requires confirmation)
+- **staging**: Pre-production (auto-confirms)
 - **prod**: Production (requires confirmation)
 
 ### Parameters
 
-Edit `samconfig.toml` to customize:
+Edit `samconfig.toml` to customize per environment (stack name, region, parameters).
 
-```toml
-[dev.deploy.parameters]
-stack_name = "ses-email-handler-dev"
-parameter_overrides = "Environment=\"dev\""
-region = "us-west-2"  # Change region here
-```
+### Lambda Defaults
 
-### Lambda Configuration
-
-Edit `template.yaml` to adjust:
-
-```yaml
-Globals:
-  Function:
-    Timeout: 30          # Execution timeout
-    MemorySize: 256      # Memory allocation
-    Runtime: python3.12  # Python version
-```
+Edit `template.yaml` Globals section for timeout, memory, runtime (python3.13), tracing.
 
 ## Deployment
 
-### Deploy to Different Environments
+### Deploy to Environments
 
 ```bash
-# Development
-sam build && sam deploy --config-env dev
-
-# Staging
-sam build && sam deploy --config-env staging
-
-# Production
-sam build && sam deploy --config-env prod
+uv tool run sam build && uv tool run sam deploy --config-env dev     # Development
+uv tool run sam build && uv tool run sam deploy --config-env staging # Staging
+uv tool run sam build && uv tool run sam deploy --config-env prod    # Production
 ```
 
-### Update Existing Stack
+### Validate Template
 
 ```bash
-# Build
-sam build
-
-# Deploy (will show changes for confirmation)
-sam deploy --config-env prod
+uv tool run sam validate              # Basic validation
+uv tool run sam validate --lint       # With linting
 ```
 
 ### Delete Stack
 
 ```bash
-# Delete development stack
-aws cloudformation delete-stack --stack-name ses-email-handler-dev
-
-# Note: S3 bucket must be empty first
-BUCKET_NAME=$(aws cloudformation describe-stacks --stack-name ses-email-handler-dev --query 'Stacks[0].Outputs[?OutputKey==`SESEmailBucketName`].OutputValue' --output text)
+# Empty S3 buckets first
+BUCKET_NAME=$(aws cloudformation describe-stacks --stack-name bedrock-agentcore-lambda-dev --query 'Stacks[0].Outputs[?OutputKey==`SESEmailBucketName`].OutputValue' --output text)
 aws s3 rm s3://$BUCKET_NAME --recursive
-aws cloudformation delete-stack --stack-name ses-email-handler-dev
+
+# Delete stack
+aws cloudformation delete-stack --stack-name bedrock-agentcore-lambda-dev
 ```
+
+## Monitoring
+
+### Logs
+
+```bash
+# Tail logs for specific function
+uv tool run sam logs -n SESEmailHandlerFunction --stack-name bedrock-agentcore-lambda-dev --tail
+
+# Or use AWS CLI
+aws logs tail /aws/lambda/ses-email-handler-dev --follow
+```
+
+### Metrics
+
+Monitor in CloudWatch:
+- Invocation count
+- Error rate
+- Duration
+- Throttles
+
+### X-Ray Tracing
+
+View traces in AWS X-Ray console for:
+- Lambda execution time
+- AWS service calls (S3, SQS, Bedrock)
+- Error traces
 
 ## Troubleshooting
 
-### Lambda Not Receiving Messages
-
-1. Check SES Receipt Rule is active:
-   ```bash
-   aws ses describe-receipt-rule-set --rule-set-name my-rule-set
-   ```
-
-2. Verify SQS permissions allow SES to send:
-   ```bash
-   aws sqs get-queue-attributes --queue-url $QUEUE_URL --attribute-names Policy
-   ```
-
-3. Check CloudWatch Logs for errors:
-   ```bash
-   aws logs tail /aws/lambda/ses-email-handler-dev --follow
-   ```
-
-### S3 Access Denied
-
-Ensure Lambda has permission to read from S3 bucket:
-- Lambda execution role includes `s3:GetObject` permission
-- S3 bucket policy allows SES to write: `s3:PutObject`
-
-### Messages in DLQ
-
-Check the Dead Letter Queue for failed messages:
+### Build Fails
 
 ```bash
-# Get DLQ messages
-DLQ_URL=$(aws sqs get-queue-url --queue-name ses-email-dlq-dev --query 'QueueUrl' --output text)
-aws sqs receive-message --queue-url $DLQ_URL --max-number-of-messages 10
-
-# Process and delete a message
-aws sqs delete-message --queue-url $DLQ_URL --receipt-handle "RECEIPT_HANDLE"
+rm -rf .aws-sam/
+uv tool run sam build
 ```
 
-### Test Email Processing
+### Lambda Not Triggered
 
-Send a test email to your configured recipient address:
+1. Check CloudWatch Logs for errors
+2. Verify IAM permissions
+3. Check event source configuration
+4. Review metrics for throttling
 
-```bash
-# If using SES sandbox, both sender and recipient must be verified
-aws ses send-email \
-  --from verified-sender@yourdomain.com \
-  --to your-recipient@yourdomain.com \
-  --subject "Test Email" \
-  --text "This is a test email for Lambda processing."
-```
+### Permission Errors
 
-## Cost Considerations
+Ensure Lambda roles have required permissions:
+- S3: `s3:GetObject`
+- SQS: `sqs:ReceiveMessage`, `sqs:DeleteMessage`
+- Bedrock: `bedrock:InvokeAgent`
 
-- **Lambda**: Pay per invocation and duration (~$0.20 per 1M requests)
-- **SQS**: First 1M requests/month free, then $0.40 per 1M
-- **S3**: Storage ($0.023/GB) + requests
-- **CloudWatch**: Logs and metrics (minimal)
-- **X-Ray**: $5 per 1M traces recorded
+## Security
 
-Estimated cost for 10,000 emails/month: < $1
+- Least privilege IAM permissions
+- Never hardcode secrets (use Secrets Manager/Parameter Store)
+- Enable encryption at rest (S3, SQS)
+- Validate and sanitize all inputs
+- Use VPC for sensitive workloads
 
-## Security Best Practices
+## Cost Estimate
 
-1. **Verify SES Senders**: Only accept emails from verified domains
-2. **Scan for Viruses**: SES virus scanning is enabled by default
-3. **Monitor DLQ**: Set up CloudWatch alarms for DLQ depth
-4. **Encrypt S3**: Enable S3 encryption at rest (add to template.yaml)
-5. **Least Privilege**: Lambda has minimal required permissions
+- Lambda: ~$0.20 per 1M requests
+- SQS: First 1M/month free, then $0.40 per 1M
+- S3: Storage + requests
+- CloudWatch: Logs and metrics
+- X-Ray: $5 per 1M traces
 
-## CI/CD Integration
+Typical usage: < $5/month per environment
 
-### GitHub Actions Example
-
-```yaml
-name: Deploy SES Email Handler
-
-on:
-  push:
-    branches: [main]
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: aws-actions/setup-sam@v2
-      - uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-west-2
-
-      - name: Build and Deploy
-        run: |
-          sam build
-          sam deploy --config-env prod --no-confirm-changeset
-```
-
-## Additional Resources
+## Resources
 
 - [AWS SAM Documentation](https://docs.aws.amazon.com/serverless-application-model/)
+- [Amazon Bedrock Documentation](https://docs.aws.amazon.com/bedrock/)
+- [Lambda Best Practices](https://docs.aws.amazon.com/lambda/latest/dg/best-practices.html)
 - [Amazon SES Developer Guide](https://docs.aws.amazon.com/ses/latest/dg/)
-- [SQS Lambda Integration](https://docs.aws.amazon.com/lambda/latest/dg/with-sqs.html)
-- [Python Email Parser](https://docs.python.org/3/library/email.parser.html)
+
+## Contributing
+
+When adding new Lambda functions:
+
+1. Follow existing code structure
+2. Add comprehensive unit tests
+3. Update this README with function documentation
+4. Document setup steps and required resources
 
 ## License
 
