@@ -1,0 +1,71 @@
+# SAM Template Resource Contract
+# Feature: 001-shared-agent-invocation
+# Add this resource definition to template.yaml
+
+AgentCoreInvocationFunction:
+  Type: AWS::Serverless::Function
+  Properties:
+    FunctionName: !Sub agentcore-invocation-handler-${Environment}
+    CodeUri: src/
+    Handler: agentcore_invocation_handler.lambda_handler
+    Description: Invoke Amazon Bedrock AgentCore agents with structured input/output
+
+    # Resource Configuration
+    Timeout: 60  # Bedrock agent invocations can take 30+ seconds
+    MemorySize: 512  # Tune based on CloudWatch metrics
+    ReservedConcurrentExecutions: 100  # Limit concurrent invocations
+
+    # Environment Variables
+    Environment:
+      Variables:
+        ENVIRONMENT: !Ref Environment
+        LOG_LEVEL: INFO
+        DEFAULT_TIMEOUT: '30'
+        DEFAULT_MAX_RETRIES: '3'
+
+    # IAM Permissions
+    Policies:
+      - Version: '2012-10-17'
+        Statement:
+          # Bedrock Agent Invocation
+          - Effect: Allow
+            Action:
+              - bedrock:InvokeAgent
+            Resource:
+              - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:agent/*'
+              - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:agent-alias/*'
+
+          # CloudWatch Logs
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: '*'
+
+          # X-Ray Tracing
+          - Effect: Allow
+            Action:
+              - xray:PutTraceSegments
+              - xray:PutTelemetryRecords
+            Resource: '*'
+
+    # Tags
+    Tags:
+      Project: bedrock-agentcore-lambda
+      Feature: agentcore-invocation
+      ManagedBy: SAM
+
+# Outputs to add to template.yaml
+Outputs:
+  AgentCoreInvocationFunctionArn:
+    Description: ARN of the AgentCore Invocation Lambda function
+    Value: !GetAtt AgentCoreInvocationFunction.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-AgentCoreInvocationFunctionArn
+
+  AgentCoreInvocationFunctionName:
+    Description: Name of the AgentCore Invocation Lambda function
+    Value: !Ref AgentCoreInvocationFunction
+    Export:
+      Name: !Sub ${AWS::StackName}-AgentCoreInvocationFunctionName
