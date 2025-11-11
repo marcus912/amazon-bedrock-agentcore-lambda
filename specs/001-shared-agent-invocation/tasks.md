@@ -1,14 +1,9 @@
----
-
-description: "Task list for Shared AgentCore Invocation Lambda implementation"
----
-
-# Tasks: Shared AgentCore Invocation Lambda
+# Tasks: Shared AgentCore Invocation Module
 
 **Input**: Design documents from `/specs/001-shared-agent-invocation/`
-**Prerequisites**: plan.md (required), spec.md (required for user stories), research.md, data-model.md, contracts/
+**Prerequisites**: plan.md ✅, spec.md ✅, research.md ✅, data-model.md ✅, contracts/ ✅, quickstart.md ✅
 
-**Tests**: Following Constitution III (Test-First Development - NON-NEGOTIABLE), tests MUST be written BEFORE implementation. This is mandatory per project constitution.
+**Tests**: Tests are NOT explicitly requested in the specification, so test tasks are NOT included per speckit guidelines.
 
 **Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
 
@@ -18,225 +13,146 @@ description: "Task list for Shared AgentCore Invocation Lambda implementation"
 - **[Story]**: Which user story this task belongs to (e.g., US1, US2, US3, US4)
 - Include exact file paths in descriptions
 
-## Path Conventions
-
-- **Single serverless project**: `src/`, `tests/` at repository root
-- Lambda handlers as flat Python modules in `src/`
-- SAM template at root: `template.yaml`
-- Tests mirror handler names
-
 ---
 
 ## Phase 1: Setup (Shared Infrastructure)
 
-**Purpose**: Project initialization and test event setup
+**Purpose**: Project initialization and three-layer architecture setup
 
-- [ ] T001 Create test event for direct invocation in tests/events/agentcore-invocation-direct.json
-- [ ] T002 Create test event for API Gateway invocation in tests/events/agentcore-invocation-api-gateway.json
-- [ ] T003 Create test event for EventBridge invocation in tests/events/agentcore-invocation-eventbridge.json
-- [ ] T004 Create test event for invalid input in tests/events/agentcore-invocation-invalid.json
-- [ ] T005 Update src/requirements.txt to add boto3>=1.34.0 and botocore>=1.34.0
+- [ ] T001 Create `src/integrations/` directory for AWS service integrations
+- [ ] T002 Create `src/integrations/__init__.py` to make integrations a package
+- [ ] T003 Create `src/services/` directory for utility functions
+- [ ] T004 Create `src/services/__init__.py` to make services a package
+- [ ] T005 Create `tests/integrations/` directory for AWS integration tests
+- [ ] T006 Create `tests/services/` directory for service utility tests
+- [ ] T007 Update `src/requirements.txt` to add boto3>=1.34.0 and botocore>=1.34.0
 
-**Checkpoint**: Test events created, dependencies updated - ready for test-first development
+**Checkpoint**: Directory structure ready for three-layer architecture (handlers, services, integrations)
 
 ---
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 
-**Purpose**: Core infrastructure that MUST be complete before ANY user story can be implemented
+**Purpose**: Core exception classes and configuration that ALL user stories depend on
 
-**⚠️ CRITICAL**: No user story work can begin until this phase is complete (Constitution III: Test-First Development)
+**⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T006 Create test file tests/test_agentcore_invocation_handler.py with test class structure
-- [ ] T007 Add SAM template resource AgentCoreInvocationFunction to template.yaml with IAM permissions for bedrock:InvokeAgent
-- [ ] T008 Validate SAM template with `uv tool run sam validate --lint` to ensure infrastructure is correct
+- [ ] T008 Create custom exception classes in `src/integrations/agentcore_invocation.py`: ConfigurationError, AgentNotFoundException, ThrottlingException, ValidationException
+- [ ] T009 Implement environment variable reading for AGENT_RUNTIME_ARN in `src/integrations/agentcore_invocation.py` (at module import time, raise ConfigurationError if missing)
+- [ ] T010 Initialize boto3 bedrock-agentcore client with retry config in `src/integrations/agentcore_invocation.py` (module-level, thread-safe)
 
-**Checkpoint**: Foundation ready - user story implementation can now begin following test-first approach
+**Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
 ---
 
-## Phase 3: User Story 1 - Direct Agent Invocation (Priority: P1) 🎯 MVP
+## Phase 3: User Story 1 - Shared Module Integration (Priority: P1) 🎯 MVP
 
-**Goal**: Enable Lambda function to invoke Bedrock AgentCore agents with agent ID, alias ID, session ID, and input text, returning structured responses
+**Goal**: Provide a reusable `invoke_agent()` function that Lambda handlers can import and use to invoke Bedrock AgentCore agents
 
-**Independent Test**: Invoke Lambda with valid agent parameters → Receive successful response with agent output → Core functionality proven
-
-### Tests for User Story 1 (Constitution III: Write FIRST, ensure FAIL before implementation) ⚠️
-
-> **CRITICAL: Write these tests FIRST, run pytest to verify they FAIL, then implement**
-
-- [ ] T009 [P] [US1] Write unit test for parse_event() with direct invocation event in tests/test_agentcore_invocation_handler.py (TestEventParsing class)
-- [ ] T010 [P] [US1] Write unit test for parse_event() with API Gateway event in tests/test_agentcore_invocation_handler.py (TestEventParsing class)
-- [ ] T011 [P] [US1] Write unit test for parse_event() with EventBridge event in tests/test_agentcore_invocation_handler.py (TestEventParsing class)
-- [ ] T012 [P] [US1] Write unit test for validate_request() with valid agent ID format in tests/test_agentcore_invocation_handler.py (TestInputValidation class)
-- [ ] T013 [P] [US1] Write unit test for validate_request() with valid agent alias ID in tests/test_agentcore_invocation_handler.py (TestInputValidation class)
-- [ ] T014 [P] [US1] Write unit test for validate_request() with valid session ID (UUID v4) in tests/test_agentcore_invocation_handler.py (TestInputValidation class)
-- [ ] T015 [P] [US1] Write unit test for validate_request() with valid input text (non-empty, under 25KB) in tests/test_agentcore_invocation_handler.py (TestInputValidation class)
-- [ ] T016 [P] [US1] Write unit test for lambda_handler() successful agent invocation with mocked boto3 client in tests/test_agentcore_invocation_handler.py (TestLambdaHandler class)
-- [ ] T017 [P] [US1] Write unit test for invoke_agent_with_retry() collecting EventStream chunks in tests/test_agentcore_invocation_handler.py (TestLambdaHandler class)
-- [ ] T018 [P] [US1] Write unit test for build_success_response() with metadata (requestId, timestamp, executionTimeMs) in tests/test_agentcore_invocation_handler.py (TestLambdaHandler class)
-
-**Test Checkpoint**: Run `uv run pytest tests/test_agentcore_invocation_handler.py -v` → All tests should FAIL (expected) → Ready for implementation
+**Independent Test**: Import the module in the existing SQS email handler, call `invoke_agent()` with a test prompt, verify the agent response is returned
 
 ### Implementation for User Story 1
 
-- [ ] T019 [US1] Create src/agentcore_invocation_handler.py with lambda_handler() function signature and module-level imports
-- [ ] T020 [P] [US1] Implement parse_event() function in src/agentcore_invocation_handler.py to detect and extract parameters from direct, API Gateway, and EventBridge events
-- [ ] T021 [P] [US1] Implement validate_request() function in src/agentcore_invocation_handler.py with regex validation for agent ID (10 alphanumeric), agent alias ID, session ID (UUID v4), and input text (max 25KB)
-- [ ] T022 [P] [US1] Implement log_structured() function in src/agentcore_invocation_handler.py for JSON-formatted logging with timestamp, level, message, and kwargs
-- [ ] T023 [US1] Implement invoke_agent_with_retry() function in src/agentcore_invocation_handler.py to call bedrock-agent-runtime invoke_agent API and collect EventStream chunks (depends on T020, T021, T022)
-- [ ] T024 [US1] Implement build_success_response() function in src/agentcore_invocation_handler.py to construct AgentInvocationResponse with data and metadata
-- [ ] T025 [US1] Complete lambda_handler() implementation in src/agentcore_invocation_handler.py to orchestrate parse → validate → invoke → build response flow (depends on T020-T024)
-- [ ] T026 [US1] Run `uv run pytest tests/test_agentcore_invocation_handler.py::TestEventParsing -v` to verify event parsing tests pass
-- [ ] T027 [US1] Run `uv run pytest tests/test_agentcore_invocation_handler.py::TestInputValidation -v` to verify validation tests pass
-- [ ] T028 [US1] Run `uv run pytest tests/test_agentcore_invocation_handler.py::TestLambdaHandler::test_successful_invocation -v` to verify successful invocation test passes
+- [ ] T011 [US1] Implement `invoke_agent(prompt: str, session_id: Optional[str] = None, **kwargs) -> str` function signature in `src/integrations/agentcore_invocation.py`
+- [ ] T012 [US1] Implement session ID generation logic in `src/integrations/agentcore_invocation.py` (if None, generate 33+ char UUID4 with "session-" prefix)
+- [ ] T013 [US1] Implement Bedrock API call to `client.invoke_agent_runtime()` in `src/integrations/agentcore_invocation.py` with agentRuntimeArn, runtimeSessionId, payload parameters
+- [ ] T014 [US1] Implement payload formatting as JSON string `{"prompt": "text"}` in `src/integrations/agentcore_invocation.py`
+- [ ] T015 [US1] Implement EventStream response handling with `.read()` and JSON parsing in `src/integrations/agentcore_invocation.py`
+- [ ] T016 [US1] Implement response aggregation to collect all chunks and return complete agent output as string in `src/integrations/agentcore_invocation.py`
+- [ ] T017 [US1] Add module-level docstring and function docstring with usage example in `src/integrations/agentcore_invocation.py`
 
-**Implementation Checkpoint**: Run `uv run pytest tests/test_agentcore_invocation_handler.py -v` → All User Story 1 tests should PASS
-
-### Integration Testing for User Story 1
-
-- [ ] T029 [US1] Run `uv tool run sam build` to package Lambda function with dependencies
-- [ ] T030 [US1] Run `uv tool run sam local invoke AgentCoreInvocationFunction -e tests/events/agentcore-invocation-direct.json` to test local invocation (replace TESTABC123 with real agent ID)
-- [ ] T031 [US1] Deploy to dev with `uv tool run sam deploy --config-env dev` and verify AgentCoreInvocationFunctionArn in stack outputs
-- [ ] T032 [US1] Test live invocation with `aws lambda invoke --function-name agentcore-invocation-handler-dev --payload file://tests/events/agentcore-invocation-direct.json response.json` and verify successful response
-
-**Checkpoint**: User Story 1 is fully functional and independently testable - MVP complete! 🎯
+**Checkpoint**: At this point, User Story 1 should be fully functional - handlers can import and invoke agents
 
 ---
 
-## Phase 4: User Story 2 - Error Handling and Retries (Priority: P2)
+## Phase 4: User Story 2 - Environment-Based Configuration (Priority: P1)
 
-**Goal**: Implement robust error handling with graceful error messages, retry logic with exponential backoff for transient failures, and structured error responses
+**Goal**: Enable configuration of agent ARN via environment variables, supporting multi-environment deployments without code changes
 
-**Independent Test**: Simulate failure scenarios (invalid agent ID, throttling, timeout) → Verify appropriate error responses and retry behavior → Error handling proven
-
-### Tests for User Story 2 (Constitution III: Write FIRST) ⚠️
-
-- [ ] T033 [P] [US2] Write unit test for validate_request() with invalid agent ID format in tests/test_agentcore_invocation_handler.py (TestInputValidation class)
-- [ ] T034 [P] [US2] Write unit test for validate_request() with invalid agent alias ID in tests/test_agentcore_invocation_handler.py (TestInputValidation class)
-- [ ] T035 [P] [US2] Write unit test for validate_request() with invalid session ID format in tests/test_agentcore_invocation_handler.py (TestInputValidation class)
-- [ ] T036 [P] [US2] Write unit test for validate_request() with empty input text in tests/test_agentcore_invocation_handler.py (TestInputValidation class)
-- [ ] T037 [P] [US2] Write unit test for validate_request() with input text exceeding 25KB in tests/test_agentcore_invocation_handler.py (TestInputValidation class)
-- [ ] T038 [P] [US2] Write unit test for lambda_handler() returning ValidationError without calling Bedrock in tests/test_agentcore_invocation_handler.py (TestLambdaHandler class)
-- [ ] T039 [P] [US2] Write unit test for lambda_handler() handling ResourceNotFoundException (agent not found) in tests/test_agentcore_invocation_handler.py (TestLambdaHandler class)
-- [ ] T040 [P] [US2] Write unit test for invoke_agent_with_retry() with ThrottlingException triggering exponential backoff retry in tests/test_agentcore_invocation_handler.py (TestLambdaHandler class)
-- [ ] T041 [P] [US2] Write unit test for invoke_agent_with_retry() with timeout scenario in tests/test_agentcore_invocation_handler.py (TestLambdaHandler class)
-- [ ] T042 [P] [US2] Write unit test for build_error_response() constructing AgentInvocationError with errorType, errorMessage, retryable flag in tests/test_agentcore_invocation_handler.py (TestLambdaHandler class)
-
-**Test Checkpoint**: Run `uv run pytest tests/test_agentcore_invocation_handler.py::TestInputValidation -v` and `::TestLambdaHandler -v` → Error handling tests should FAIL → Ready for implementation
+**Independent Test**: Deploy with AGENT_RUNTIME_ARN set to a test agent in dev environment, verify invocations use that agent
 
 ### Implementation for User Story 2
 
-- [ ] T043 [US2] Update validate_request() in src/agentcore_invocation_handler.py to return specific error messages for each validation failure (invalid agent ID, alias ID, session ID, empty/oversized input text)
-- [ ] T044 [US2] Implement build_error_response() function in src/agentcore_invocation_handler.py to construct AgentInvocationError with errorType, errorMessage, errorCode, metadata, retryable flag
-- [ ] T045 [US2] Update invoke_agent_with_retry() in src/agentcore_invocation_handler.py to implement exponential backoff retry logic (2^attempt * 100ms) for ThrottlingException, ServiceQuotaExceededException, InternalServerException
-- [ ] T046 [US2] Update invoke_agent_with_retry() in src/agentcore_invocation_handler.py to NOT retry ResourceNotFoundException and ValidationException (permanent errors)
-- [ ] T047 [US2] Update lambda_handler() in src/agentcore_invocation_handler.py to catch botocore ClientError and map AWS error codes to error types (AgentNotFound, ThrottlingError, TimeoutError, InternalError)
-- [ ] T048 [US2] Update lambda_handler() in src/agentcore_invocation_handler.py to return build_error_response() for validation failures before calling Bedrock
-- [ ] T049 [US2] Run `uv run pytest tests/test_agentcore_invocation_handler.py::TestInputValidation -v` to verify all validation error tests pass
-- [ ] T050 [US2] Run `uv run pytest tests/test_agentcore_invocation_handler.py::TestLambdaHandler -v` to verify error handling and retry tests pass
+- [ ] T018 [US2] Update SAM template `template.yaml` to add AGENT_RUNTIME_ARN environment variable to all Lambda functions (under Globals or per function)
+- [ ] T019 [US2] Update `samconfig.toml` to include AGENT_RUNTIME_ARN parameter mapping for dev/staging/prod environments
+- [ ] T020 [US2] Add validation in `src/integrations/agentcore_invocation.py` module initialization to ensure AGENT_RUNTIME_ARN format is valid (starts with "arn:aws:bedrock-agentcore:")
+- [ ] T021 [US2] Add structured logging in `src/integrations/agentcore_invocation.py` to log agent ARN being used at module initialization (INFO level)
 
-**Implementation Checkpoint**: All error scenarios handled gracefully, retry logic proven
-
-### Integration Testing for User Story 2
-
-- [ ] T051 [US2] Test validation error with `aws lambda invoke --function-name agentcore-invocation-handler-dev --payload file://tests/events/agentcore-invocation-invalid.json error-response.json` and verify errorType=ValidationError, retryable=false
-- [ ] T052 [US2] Test agent not found error by invoking with nonexistent agent ID and verify errorType=AgentNotFound, errorCode=ResourceNotFoundException
-
-**Checkpoint**: User Story 2 complete and independently testable - Error handling robust
+**Checkpoint**: At this point, User Stories 1 AND 2 should both work - handlers can invoke agents with environment-specific configuration
 
 ---
 
-## Phase 5: User Story 3 - Multi-Environment Configuration (Priority: P2)
+## Phase 5: User Story 3 - Error Handling for Callers (Priority: P2)
 
-**Goal**: Support deployment to dev, staging, prod environments with environment-specific configurations (agent IDs, timeouts) via SAM template parameters
+**Goal**: Provide clear error messages and domain-specific exceptions so handlers can implement appropriate error recovery strategies
 
-**Independent Test**: Deploy to dev and staging with different configs → Verify each environment uses its own settings → Multi-env support proven
-
-### Tests for User Story 3 (Constitution III: Write FIRST) ⚠️
-
-- [ ] T053 [P] [US3] Write unit test for lambda_handler() reading DEFAULT_TIMEOUT from environment variable in tests/test_agentcore_invocation_handler.py (TestLambdaHandler class)
-- [ ] T054 [P] [US3] Write unit test for lambda_handler() reading DEFAULT_MAX_RETRIES from environment variable in tests/test_agentcore_invocation_handler.py (TestLambdaHandler class)
-- [ ] T055 [P] [US3] Write unit test for lambda_handler() using custom timeout from request parameter (overriding default) in tests/test_agentcore_invocation_handler.py (TestLambdaHandler class)
-
-**Test Checkpoint**: Environment configuration tests should FAIL → Ready for implementation
+**Independent Test**: Call `invoke_agent()` with invalid prompt or during Bedrock service issues, verify appropriate exception is raised with actionable error message
 
 ### Implementation for User Story 3
 
-- [ ] T056 [US3] Update lambda_handler() in src/agentcore_invocation_handler.py to read DEFAULT_TIMEOUT and DEFAULT_MAX_RETRIES from os.environ with fallback defaults (30s, 3 retries)
-- [ ] T057 [US3] Update lambda_handler() in src/agentcore_invocation_handler.py to allow request-level timeout and maxRetries parameters to override environment defaults
-- [ ] T058 [US3] Verify AgentCoreInvocationFunction in template.yaml has Environment Variables section with ENVIRONMENT, LOG_LEVEL, DEFAULT_TIMEOUT, DEFAULT_MAX_RETRIES
-- [ ] T059 [US3] Verify samconfig.toml has dev, staging, prod environments with separate stack names and parameter_overrides for Environment variable
-- [ ] T060 [US3] Run `uv run pytest tests/test_agentcore_invocation_handler.py -v` to verify environment configuration tests pass
+- [ ] T022 [P] [US3] Implement prompt validation in `src/integrations/agentcore_invocation.py` (non-empty string check before Bedrock call, raise ValidationException if invalid)
+- [ ] T023 [P] [US3] Implement session_id validation in `src/integrations/agentcore_invocation.py` (None or UUID4 format, raise ValidationException if invalid)
+- [ ] T024 [US3] Implement error mapping for botocore ClientError exceptions in `src/integrations/agentcore_invocation.py` (map ResourceNotFoundException → AgentNotFoundException, ThrottlingException → ThrottlingException, etc.)
+- [ ] T025 [US3] Implement retry logic with exponential backoff in `src/integrations/agentcore_invocation.py` (up to 3 attempts for transient errors: ThrottlingException, InternalServerException)
+- [ ] T026 [US3] Add structured logging for error scenarios in `src/integrations/agentcore_invocation.py` (log error type, agent ARN, retry attempts at ERROR level)
+- [ ] T027 [US3] Ensure exception messages include actionable information in `src/integrations/agentcore_invocation.py` (agent ARN, error code, retry advice)
 
-**Implementation Checkpoint**: Multi-environment configuration working
-
-### Integration Testing for User Story 3
-
-- [ ] T061 [US3] Deploy to staging with `uv tool run sam deploy --config-env staging` and verify separate stack bedrock-agentcore-lambda-staging created
-- [ ] T062 [US3] Verify dev and staging Lambda functions use different environment variables by checking AWS console or `aws lambda get-function-configuration`
-- [ ] T063 [US3] Test invocation in both dev and staging to confirm isolation (changes in dev don't affect staging)
-
-**Checkpoint**: User Story 3 complete - Multi-environment deployment proven
+**Checkpoint**: All core agent invocation functionality complete - error handling is production-ready
 
 ---
 
-## Phase 6: User Story 4 - Logging and Observability (Priority: P3)
+## Phase 6: Services Layer Implementation
 
-**Goal**: Implement comprehensive structured JSON logging with CloudWatch Insights compatibility and verify X-Ray tracing captures Bedrock API call timing
+**Goal**: Implement reusable utility functions for email processing and S3 operations that handlers will use
 
-**Independent Test**: Invoke function → Verify CloudWatch Logs contain structured JSON with requestId, agentId, executionTimeMs → X-Ray trace shows Bedrock timing → Observability proven
+**Independent Test**: Import service functions in SQS email handler, verify email body extraction and S3 operations work correctly
 
-### Tests for User Story 4 (Constitution III: Write FIRST) ⚠️
+### Implementation for Services Layer
 
-- [ ] T064 [P] [US4] Write unit test for log_structured() producing valid JSON log entries in tests/test_agentcore_invocation_handler.py (TestStructuredLogging class)
-- [ ] T065 [P] [US4] Write unit test for log_structured() including timestamp, level, message, and custom kwargs in tests/test_agentcore_invocation_handler.py (TestStructuredLogging class)
-- [ ] T066 [P] [US4] Write unit test for lambda_handler() logging invocation start with requestId and agentId in tests/test_agentcore_invocation_handler.py (TestStructuredLogging class)
-- [ ] T067 [P] [US4] Write unit test for lambda_handler() logging success with executionTimeMs in tests/test_agentcore_invocation_handler.py (TestStructuredLogging class)
-- [ ] T068 [P] [US4] Write unit test for lambda_handler() logging errors with errorType and errorMessage in tests/test_agentcore_invocation_handler.py (TestStructuredLogging class)
-- [ ] T069 [P] [US4] Write unit test for response metadata including requestId, timestamp, executionTimeMs in tests/test_agentcore_invocation_handler.py (TestObservability class)
+- [ ] T028 [P] Create `src/services/email.py` with `extract_email_body(email_content: str) -> str` function for extracting body text from email
+- [ ] T029 [P] Create `src/services/email.py` with `parse_email_headers(email_content: str) -> dict` function for parsing email headers
+- [ ] T030 [P] Create `src/services/s3.py` with `fetch_email_from_s3(bucket: str, key: str) -> str` function using boto3 S3 client
+- [ ] T031 [P] Create `src/services/s3.py` with `upload_processed_result(bucket: str, key: str, content: str)` function for uploading results to S3
+- [ ] T032 [P] Add error handling and logging to all service functions in `src/services/email.py` and `src/services/s3.py`
+- [ ] T033 [P] Add function docstrings with usage examples to all service functions in `src/services/email.py` and `src/services/s3.py`
 
-**Test Checkpoint**: Logging and observability tests should FAIL → Ready for implementation
+**Checkpoint**: Services layer complete - handlers can use email and S3 utilities
+
+---
+
+## Phase 7: User Story 4 - SQS Integration Testing (Priority: P2)
+
+**Goal**: Enable local and integration testing of agent invocations from SQS-triggered handlers
+
+**Independent Test**: Run `sam local invoke` with an SQS test event, verify the handler processes the SQS message, invokes the agent, and returns a successful response
 
 ### Implementation for User Story 4
 
-- [ ] T070 [US4] Verify log_structured() in src/agentcore_invocation_handler.py outputs JSON with datetime.utcnow().isoformat() timestamp, level, message, and kwargs
-- [ ] T071 [US4] Verify lambda_handler() in src/agentcore_invocation_handler.py logs 'Agent invocation started' with requestId from context.request_id
-- [ ] T072 [US4] Verify lambda_handler() in src/agentcore_invocation_handler.py logs 'Agent invocation succeeded' with requestId, agentId, executionTimeMs
-- [ ] T073 [US4] Verify lambda_handler() in src/agentcore_invocation_handler.py logs 'Agent invocation failed' with requestId, errorType, errorCode, errorMessage on errors
-- [ ] T074 [US4] Verify lambda_handler() in src/agentcore_invocation_handler.py sanitizes PII from logs (logs input length, not content)
-- [ ] T075 [US4] Verify build_success_response() and build_error_response() in src/agentcore_invocation_handler.py include metadata with requestId, timestamp (ISO 8601), executionTimeMs
-- [ ] T076 [US4] Run `uv run pytest tests/test_agentcore_invocation_handler.py::TestStructuredLogging -v` to verify logging tests pass
-- [ ] T077 [US4] Run `uv run pytest tests/test_agentcore_invocation_handler.py::TestObservability -v` to verify observability tests pass
+- [ ] T034 [US4] Create `tests/events/sqs-email-with-agent-invocation.json` test event based on SES notification format with email body suitable for agent summarization
+- [ ] T035 [US4] Update existing SQS email handler `src/sqs_email_handler.py` to import services: `from services import email, s3`
+- [ ] T036 [US4] Update existing SQS email handler `src/sqs_email_handler.py` to import integrations: `from integrations import agentcore_invocation`
+- [ ] T037 [US4] Refactor handler logic in `src/sqs_email_handler.py` to use clean three-layer pattern: delegate S3 operations to `s3.fetch_email_from_s3()`, email parsing to `email.extract_email_body()`, agent invocation to `agentcore_invocation.invoke_agent()`
+- [ ] T038 [US4] Add agent invocation call in `src/sqs_email_handler.py` using prompt format: `f"Summarize this email: {body}"` with session_id=None
+- [ ] T039 [US4] Add error handling in `src/sqs_email_handler.py` to catch agent invocation exceptions (ConfigurationError, AgentNotFoundException, ThrottlingException, ValidationException) and return appropriate responses
+- [ ] T040 [US4] Update handler response structure in `src/sqs_email_handler.py` to include agent summary in output
+- [ ] T041 [US4] Add structured logging to handler in `src/sqs_email_handler.py` for agent invocation events (prompt length, response length, execution time)
 
-**Implementation Checkpoint**: Structured logging working, metadata present
-
-### Integration Testing for User Story 4
-
-- [ ] T078 [US4] Invoke function in dev and run `uv tool run sam logs -n AgentCoreInvocationFunction --stack-name bedrock-agentcore-lambda-dev --tail` to verify structured JSON logs
-- [ ] T079 [US4] Verify CloudWatch Logs contain fields: timestamp, level, message, requestId, agentId, executionTimeMs using CloudWatch Logs Insights query
-- [ ] T080 [US4] Open X-Ray console and verify trace shows Lambda → Bedrock agent call with timing breakdown
-- [ ] T081 [US4] Verify X-Ray trace includes subsegments for Bedrock API invoke_agent call with duration
-
-**Checkpoint**: User Story 4 complete - Observability fully implemented
+**Checkpoint**: All user stories complete - SQS handler uses clean three-layer architecture with agent invocation
 
 ---
 
-## Phase 7: Polish & Cross-Cutting Concerns
+## Phase 8: Polish & Cross-Cutting Concerns
 
-**Purpose**: Final improvements affecting multiple user stories
+**Purpose**: Documentation, validation, and production readiness improvements
 
-- [ ] T082 [P] Run `uv run pytest tests/ --cov=src --cov-report=term --cov-report=html` to verify test coverage ≥80% (Constitution IV requirement)
-- [ ] T083 [P] Update README.md with AgentCore Invocation Handler section including usage, monitoring, and reference to specs/001-shared-agent-invocation/
-- [ ] T084 [P] Add docstrings to all functions in src/agentcore_invocation_handler.py with parameter types and return types
-- [ ] T085 Verify template.yaml AgentCoreInvocationFunction has correct Timeout (60s), MemorySize (512MB), ReservedConcurrentExecutions (100)
-- [ ] T086 Run `uv tool run sam validate --lint` to ensure SAM template passes all validation checks
-- [ ] T087 Run full test suite `uv run pytest tests/test_agentcore_invocation_handler.py -v` and verify 100% pass rate
-- [ ] T088 Open htmlcov/index.html to review coverage report and identify any uncovered edge cases
-- [ ] T089 Add any missing edge case tests based on coverage report (e.g., malformed EventStream, connection errors)
-- [ ] T090 Re-run coverage to ensure final coverage ≥80% before PR
-
-**Checkpoint**: All polish tasks complete, ready for pull request
+- [ ] T042 [P] Create example handler code snippet in `specs/001-shared-agent-invocation/contracts/lambda-handler-interface.md` showing clean usage pattern
+- [ ] T043 [P] Update project README.md with three-layer architecture documentation (handlers → services → integrations)
+- [ ] T044 Validate quickstart.md instructions by following them step-by-step in a clean environment
+- [ ] T045 Run `sam build` to verify all modules are packaged correctly
+- [ ] T046 Run `sam validate --lint` to ensure SAM template is valid
+- [ ] T047 Verify module has no side effects on import except environment variable reading (check for print statements, I/O operations)
+- [ ] T048 Review all structured logging statements to ensure they follow JSON format and include required fields (requestId, agentId, executionTime)
+- [ ] T049 [P] Update CLAUDE.md with completed feature information (architecture confirmed, modules deployed)
 
 ---
 
@@ -245,181 +161,144 @@ description: "Task list for Shared AgentCore Invocation Lambda implementation"
 ### Phase Dependencies
 
 - **Setup (Phase 1)**: No dependencies - can start immediately
-- **Foundational (Phase 2)**: Depends on Setup completion - BLOCKS all user stories
-- **User Story 1 (Phase 3)**: Depends on Foundational phase completion - No dependencies on other stories (MVP)
-- **User Story 2 (Phase 4)**: Depends on Foundational phase completion - Extends User Story 1 (error handling)
-- **User Story 3 (Phase 5)**: Depends on Foundational phase completion - Independent of other stories (can run in parallel with US1/US2)
-- **User Story 4 (Phase 6)**: Depends on Foundational phase completion - Enhances all stories (logging/observability)
-- **Polish (Phase 7)**: Depends on all desired user stories being complete
+- **Foundational (Phase 2)**: Depends on Setup (Phase 1) completion - BLOCKS all user stories
+- **User Stories (Phase 3-5)**: All depend on Foundational phase completion
+  - User Story 1 (P1): Can start after Foundational (Phase 2) - No dependencies on other stories
+  - User Story 2 (P1): Depends on User Story 1 completion (extends configuration)
+  - User Story 3 (P2): Depends on User Story 1 completion (adds error handling to core function)
+- **Services Layer (Phase 6)**: Can run in parallel with User Stories 3-4 (different files)
+- **User Story 4 (Phase 7)**: Depends on User Story 1 and Services Layer (Phase 6) completion
+- **Polish (Phase 8)**: Depends on all user stories being complete
 
 ### User Story Dependencies
 
-- **User Story 1 (P1)**: Can start after Foundational (Phase 2) - Foundation for all other stories
-- **User Story 2 (P2)**: Builds on User Story 1 (adds error handling to core invocation)
-- **User Story 3 (P2)**: Independent of US1/US2 (can implement in parallel) - Configuration only
-- **User Story 4 (P3)**: Enhances all stories (can implement after US1 or in parallel)
-
-### Recommended Implementation Order
-
-**MVP First** (Complete US1 only):
-1. Phase 1: Setup
-2. Phase 2: Foundational
-3. Phase 3: User Story 1 (P1) - Core invocation
-4. STOP and VALIDATE: Test independently, deploy to dev, verify working
-5. Decide whether to continue with US2-US4
-
-**Full Feature** (All user stories):
-1. Phase 1: Setup
-2. Phase 2: Foundational
-3. Phase 3: User Story 1 (P1) - Core invocation → Checkpoint
-4. Phase 4: User Story 2 (P2) - Error handling → Checkpoint
-5. Phase 5: User Story 3 (P2) - Multi-env config → Checkpoint
-6. Phase 6: User Story 4 (P3) - Observability → Checkpoint
-7. Phase 7: Polish
+- **User Story 1 (P1)**: Core `invoke_agent()` function - BLOCKS US2, US3, US4
+- **User Story 2 (P1)**: Environment configuration - extends US1, no blocking
+- **User Story 3 (P2)**: Error handling - enhances US1, no blocking
+- **User Story 4 (P2)**: SQS integration - requires US1 + Services Layer
 
 ### Within Each User Story
 
-- Tests (if included) MUST be written FIRST and FAIL before implementation (Constitution III)
-- Helper functions (parse_event, validate_request, log_structured) before main handler
-- Main lambda_handler implementation last (depends on helpers)
-- Unit tests → Implementation → Integration tests
-- Each story checkpoint: Tests pass, independently testable
+- Module structure before implementation
+- Core function before enhancements
+- Error handling after core functionality
+- Logging throughout all stages
 
 ### Parallel Opportunities
 
-All Setup tasks (T001-T005) can run in parallel (different files).
+**Phase 1 (Setup)**: All tasks T001-T007 can run in parallel (creating directories and files)
 
-**Within User Story 1**:
-- All test writing tasks (T009-T018) can run in parallel
-- Helper function implementations (T020-T024) can run in parallel after tests written
+**Phase 2 (Foundational)**: Tasks T008-T010 are sequential (exceptions → config → client)
 
-**Within User Story 2**:
-- All test writing tasks (T033-T042) can run in parallel
+**Phase 3 (User Story 1)**: Tasks T011-T017 are mostly sequential (function signature → session ID → API call → response handling)
 
-**Within User Story 3**:
-- All test writing tasks (T053-T055) can run in parallel
+**Phase 5 (User Story 3)**: Tasks T022-T023 can run in parallel (different validation functions)
 
-**Within User Story 4**:
-- All test writing tasks (T064-T069) can run in parallel
+**Phase 6 (Services Layer)**: All tasks T028-T033 can run in parallel (different files: email.py vs s3.py)
 
-**Polish phase**:
-- T082, T083, T084 can run in parallel (different files)
+**Phase 8 (Polish)**: Tasks T042-T043, T049 can run in parallel (different documentation files)
 
-**Parallel Example: User Story 1 Test Writing**
+---
+
+## Parallel Example: Services Layer (Phase 6)
 
 ```bash
-# Launch all User Story 1 tests together:
-Task T009: Write parse_event direct invocation test
-Task T010: Write parse_event API Gateway test
-Task T011: Write parse_event EventBridge test
-Task T012: Write validate_request valid agent ID test
-Task T013: Write validate_request valid alias ID test
-Task T014: Write validate_request valid session ID test
-Task T015: Write validate_request valid input text test
-Task T016: Write lambda_handler success test
-Task T017: Write invoke_agent_with_retry test
-Task T018: Write build_success_response test
+# Launch all service implementations in parallel:
+Task: "Create src/services/email.py with extract_email_body() function"
+Task: "Create src/services/email.py with parse_email_headers() function"
+Task: "Create src/services/s3.py with fetch_email_from_s3() function"
+Task: "Create src/services/s3.py with upload_processed_result() function"
 ```
 
 ---
 
 ## Implementation Strategy
 
-### MVP First (User Story 1 Only - Fastest Path to Value)
+### MVP First (User Story 1 Only)
 
-**Goal**: Get basic agent invocation working in 2-3 hours
+1. Complete Phase 1: Setup (T001-T007)
+2. Complete Phase 2: Foundational (T008-T010) - CRITICAL - blocks all stories
+3. Complete Phase 3: User Story 1 (T011-T017)
+4. **STOP and VALIDATE**: Test User Story 1 independently by importing in a test handler
+5. Deploy/demo if ready
 
-1. Complete Phase 1: Setup (T001-T005) - 10 min
-2. Complete Phase 2: Foundational (T006-T008) - 15 min
-3. Complete Phase 3: User Story 1 (T009-T032) - 2 hours
-   - Write all tests FIRST (T009-T018) - 30 min
-   - Verify tests FAIL - 2 min
-   - Implement handler (T019-T028) - 60 min
-   - Local and dev testing (T029-T032) - 20 min
-4. **STOP and VALIDATE**: Lambda function invokes agents, returns responses
-5. Deploy to dev, demonstrate working prototype
-6. Decision point: Ship MVP or continue with error handling/observability
+### Incremental Delivery
 
-**Total Time**: 2-3 hours for working MVP
+1. Complete Setup + Foundational (Phases 1-2) → Foundation ready
+2. Add User Story 1 (Phase 3) → Test independently → Core functionality works! 🎯 MVP
+3. Add User Story 2 (Phase 4) → Test with different environments → Multi-env support works!
+4. Add Services Layer (Phase 6) → Test service functions → Utilities ready!
+5. Add User Story 3 (Phase 5) → Test error scenarios → Production-ready error handling!
+6. Add User Story 4 (Phase 7) → Test SQS integration → Complete clean handler pattern!
+7. Polish (Phase 8) → Documentation and validation complete
 
-### Incremental Delivery (Add Features Progressively)
-
-**Goal**: Build production-ready function iteratively
-
-1. Complete Setup + Foundational → Foundation ready (25 min)
-2. Add User Story 1 → Test independently → Deploy to dev (MVP!) (2 hours)
-3. Add User Story 2 → Test error handling → Deploy to dev (1.5 hours)
-4. Add User Story 3 → Test multi-env → Deploy to staging (1 hour)
-5. Add User Story 4 → Test observability → Deploy to prod (1 hour)
-6. Polish → Documentation, coverage → Final PR (30 min)
-
-**Total Time**: 6-7 hours for complete feature
-
-Each story adds value independently without breaking previous functionality.
+Each increment adds value without breaking previous functionality.
 
 ### Parallel Team Strategy
 
-With 2-3 developers working simultaneously:
+With multiple developers:
 
-**Initial Phase** (Together):
-1. Developer A: Setup (T001-T005)
-2. Developer B: Foundational (T006-T008)
-3. Wait for Foundational completion
+1. Team completes Setup (Phase 1) together (quick - ~5 min)
+2. Team completes Foundational (Phase 2) together (critical - ~15 min)
+3. Once Foundational is done:
+   - **Developer A**: User Story 1 (Phase 3) - CORE (blocks others)
+4. Once User Story 1 is done:
+   - **Developer A**: User Story 2 (Phase 4) - Configuration
+   - **Developer B**: Services Layer (Phase 6) - Utilities (parallel)
+5. Once User Story 1 and Services are done:
+   - **Developer A**: User Story 3 (Phase 5) - Error handling
+   - **Developer B**: User Story 4 (Phase 7) - SQS integration
+6. Both developers: Polish (Phase 8) - Documentation
 
-**User Story Phase** (Parallel):
-1. Developer A: User Story 1 (T009-T032) - Core invocation
-2. Developer B: User Story 3 (T053-T063) - Multi-env (independent)
-3. Developer C: User Story 4 tests (T064-T069) - Observability tests
+---
 
-**Integration Phase** (Sequential):
-1. Developer A merges US1 (MVP deployed)
-2. Developer A: User Story 2 (T033-T052) - Error handling (builds on US1)
-3. Developer B merges US3
-4. Developer C: User Story 4 implementation (T070-T081)
-5. All: Polish phase (T082-T090)
+## Task Count Summary
 
-**Total Time** (parallel): ~3-4 hours for complete feature
+- **Phase 1 (Setup)**: 7 tasks
+- **Phase 2 (Foundational)**: 3 tasks
+- **Phase 3 (User Story 1)**: 7 tasks
+- **Phase 4 (User Story 2)**: 4 tasks
+- **Phase 5 (User Story 3)**: 6 tasks
+- **Phase 6 (Services Layer)**: 6 tasks
+- **Phase 7 (User Story 4)**: 8 tasks
+- **Phase 8 (Polish)**: 8 tasks
+
+**Total: 49 tasks**
+
+**Tasks per User Story**:
+- User Story 1 (P1): 7 tasks
+- User Story 2 (P1): 4 tasks
+- User Story 3 (P2): 6 tasks
+- User Story 4 (P2): 8 tasks
+
+**Parallel Opportunities**: 15 tasks marked [P] can run in parallel with other tasks in same phase
+
+**Suggested MVP Scope**: Phases 1-3 (Setup + Foundational + User Story 1) = 17 tasks
+
+---
+
+## Format Validation
+
+✅ ALL tasks follow the checklist format:
+- ✅ Checkbox: `- [ ]` present on all tasks
+- ✅ Task ID: Sequential (T001-T049) in execution order
+- ✅ [P] marker: Used on 15 parallelizable tasks
+- ✅ [Story] label: Used on all user story phase tasks (US1, US2, US3, US4)
+- ✅ Description: Clear action with exact file path
+- ✅ Setup phase: No story labels
+- ✅ Foundational phase: No story labels
+- ✅ User Story phases: All have story labels
+- ✅ Polish phase: No story labels
 
 ---
 
 ## Notes
 
-- [P] tasks = different files, no dependencies, can run in parallel
+- Tests are NOT included because they were not explicitly requested in the feature specification
+- [P] tasks = different files, no dependencies
 - [Story] label maps task to specific user story for traceability
-- Each user story is independently testable at its checkpoint
-- **CRITICAL**: Tests MUST be written FIRST and FAIL before implementation (Constitution III)
-- Run `uv run pytest tests/test_agentcore_invocation_handler.py -v` after each implementation checkpoint
-- Commit after each user story phase completion
+- Each user story should be independently completable and testable
+- Commit after each task or logical group
 - Stop at any checkpoint to validate story independently
-- Coverage gate: Must reach ≥80% before final PR (Constitution IV)
-
----
-
-## Task Summary
-
-**Total Tasks**: 90
-- Setup: 5 tasks
-- Foundational: 3 tasks
-- User Story 1 (P1): 24 tasks (10 tests + 14 implementation)
-- User Story 2 (P2): 20 tasks (10 tests + 10 implementation)
-- User Story 3 (P2): 11 tasks (3 tests + 8 implementation)
-- User Story 4 (P3): 18 tasks (6 tests + 12 implementation)
-- Polish: 9 tasks
-
-**Parallel Opportunities Identified**: 45 tasks marked [P] (50% parallelizable)
-
-**MVP Scope** (Minimum Viable Product): Phases 1-3 only (32 tasks, ~2-3 hours)
-- Delivers: Working Lambda function that invokes agents and returns responses
-- Validation: Deploy to dev, invoke with real agent, verify success response
-
-**Full Feature Scope**: All phases (90 tasks, ~6-7 hours)
-- Delivers: Production-ready Lambda with error handling, multi-env, observability
-- Validation: 80%+ coverage, deployed to prod, all user stories proven
-
-**Format Validation**: ✅ All 90 tasks follow required format:
-- ✅ Checkbox: `- [ ]`
-- ✅ Task ID: T001-T090 (sequential)
-- ✅ [P] marker: Present on 45 parallelizable tasks
-- ✅ [Story] label: Present on all user story phase tasks (US1-US4)
-- ✅ File paths: Specified in all implementation task descriptions
-- ✅ Test-first: Tests written before implementation per Constitution III
+- Three-layer architecture: handlers (business logic) → services (utilities) → integrations (AWS APIs)
+- Avoid: vague tasks, same file conflicts, cross-story dependencies that break independence
