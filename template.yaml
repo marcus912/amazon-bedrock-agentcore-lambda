@@ -12,6 +12,21 @@ Parameters:
       - prod
     Description: Environment name
 
+  AgentRuntimeArn:
+    Type: String
+    Default: ""
+    Description: ARN of the Bedrock AgentCore runtime (optional, can be set per environment)
+
+  SESEmailBucketName:
+    Type: String
+    Default: ""
+    Description: Existing S3 bucket name where SES stores emails
+
+  SQSQueueArn:
+    Type: String
+    Default: ""
+    Description: Existing SQS queue ARN for SES email notifications
+
 Globals:
   Function:
     Timeout: 30
@@ -21,26 +36,24 @@ Globals:
     Environment:
       Variables:
         ENVIRONMENT: !Ref Environment
+        AGENT_RUNTIME_ARN: !Ref AgentRuntimeArn
 
 Resources:
-  # SES Email Handler Lambda Function
-  SESEmailHandlerFunction:
+  # SQS Email Handler Lambda Function
+  SQSEmailHandlerFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub ses-email-handler-${Environment}
+      FunctionName: !Sub sqs-email-handler-${Environment}
       CodeUri: src/
       Handler: sqs_email_handler.lambda_handler
-      Description: Process emails from SES via SQS
-      Environment:
-        Variables:
-          SES_EMAIL_BUCKET: !Ref SESEmailBucket
+      Description: Process emails from SES via SQS with Bedrock agent summarization
 
       # SQS Event Source
       Events:
         SQSEvent:
           Type: SQS
           Properties:
-            Queue: !GetAtt EmailQueue.Arn
+            Queue: !Ref SQSQueueArn
             BatchSize: 10
             FunctionResponseTypes:
               - ReportBatchItemFailures
@@ -49,120 +62,62 @@ Resources:
       Policies:
         - Version: '2012-10-17'
           Statement:
+            # S3 - Read emails from existing bucket
             - Effect: Allow
               Action:
                 - s3:GetObject
-              Resource: !Sub arn:aws:s3:::${SESEmailBucket}/*
+              Resource: !Sub arn:aws:s3:::${SESEmailBucketName}/*
+
+            # SQS - Receive and process messages
             - Effect: Allow
               Action:
                 - sqs:ReceiveMessage
                 - sqs:DeleteMessage
                 - sqs:GetQueueAttributes
-              Resource: !GetAtt EmailQueue.Arn
+              Resource: !Ref SQSQueueArn
+
+            # Bedrock - Invoke AgentCore agents
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeAgent
+              Resource: !Ref AgentRuntimeArn
+
+            # CloudWatch Logs
             - Effect: Allow
               Action:
                 - logs:CreateLogGroup
                 - logs:CreateLogStream
                 - logs:PutLogEvents
               Resource: '*'
+
+            # X-Ray Tracing
             - Effect: Allow
               Action:
                 - xray:PutTraceSegments
                 - xray:PutTelemetryRecords
               Resource: '*'
 
-  # SQS Queue for SES notifications
-  EmailQueue:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub ses-email-queue-${Environment}
-      VisibilityTimeout: 180  # 6x Lambda timeout (30s * 6)
-      MessageRetentionPeriod: 1209600  # 14 days
-      RedrivePolicy:
-        deadLetterTargetArn: !GetAtt EmailDLQ.Arn
-        maxReceiveCount: 3
-
-  # Dead Letter Queue for failed messages
-  EmailDLQ:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub ses-email-dlq-${Environment}
-      MessageRetentionPeriod: 1209600  # 14 days
-
-  # SQS Queue Policy (allows SES to send messages)
-  EmailQueuePolicy:
-    Type: AWS::SQS::QueuePolicy
-    Properties:
-      Queues:
-        - !Ref EmailQueue
-      PolicyDocument:
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: ses.amazonaws.com
-            Action:
-              - sqs:SendMessage
-            Resource: !GetAtt EmailQueue.Arn
-            Condition:
-              StringEquals:
-                aws:Referer: !Ref AWS::AccountId
-
-  # S3 Bucket for SES emails
-  SESEmailBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Sub ses-emails-${AWS::AccountId}-${Environment}
-      LifecycleConfiguration:
-        Rules:
-          - Id: DeleteOldEmails
-            Status: Enabled
-            ExpirationInDays: 30  # Keep emails for 30 days
-
-  # Allow SES to write to S3
-  SESEmailBucketPolicy:
-    Type: AWS::S3::BucketPolicy
-    Properties:
-      Bucket: !Ref SESEmailBucket
-      PolicyDocument:
-        Statement:
-          - Sid: AllowSESPuts
-            Effect: Allow
-            Principal:
-              Service: ses.amazonaws.com
-            Action:
-              - s3:PutObject
-            Resource: !Sub ${SESEmailBucket.Arn}/*
-            Condition:
-              StringEquals:
-                aws:Referer: !Ref AWS::AccountId
-
 Outputs:
-  SESEmailHandlerFunctionName:
-    Description: SES Email Handler Lambda Function Name
-    Value: !Ref SESEmailHandlerFunction
+  SQSEmailHandlerFunctionName:
+    Description: SQS Email Handler Lambda Function Name
+    Value: !Ref SQSEmailHandlerFunction
     Export:
       Name: !Sub ${AWS::StackName}-FunctionName
 
-  SESEmailHandlerFunctionArn:
-    Description: SES Email Handler Lambda Function ARN
-    Value: !GetAtt SESEmailHandlerFunction.Arn
+  SQSEmailHandlerFunctionArn:
+    Description: SQS Email Handler Lambda Function ARN
+    Value: !GetAtt SQSEmailHandlerFunction.Arn
     Export:
       Name: !Sub ${AWS::StackName}-FunctionArn
 
-  EmailQueueUrl:
-    Description: SQS Queue URL for email processing
-    Value: !Ref EmailQueue
+  SQSQueueArn:
+    Description: SQS Queue ARN (existing queue for email processing)
+    Value: !Ref SQSQueueArn
     Export:
-      Name: !Sub ${AWS::StackName}-EmailQueueUrl
-
-  EmailQueueArn:
-    Description: SQS Queue ARN (use this in SES Receipt Rule)
-    Value: !GetAtt EmailQueue.Arn
-    Export:
-      Name: !Sub ${AWS::StackName}-EmailQueueArn
+      Name: !Sub ${AWS::StackName}-SQSQueueArn
 
   SESEmailBucketName:
-    Description: S3 Bucket for SES emails (use this in SES Receipt Rule)
-    Value: !Ref SESEmailBucket
+    Description: S3 Bucket name (existing bucket where SES stores emails)
+    Value: !Ref SESEmailBucketName
     Export:
       Name: !Sub ${AWS::StackName}-SESEmailBucketName

@@ -1,0 +1,20 @@
+{
+  "Records": [
+    {
+      "messageId": "19dd0b57-b21e-4ac1-bd88-01bbb068cb78",
+      "receiptHandle": "MessageReceiptHandle",
+      "body": "{\"Message\": \"{\\\"notificationType\\\":\\\"Received\\\",\\\"mail\\\":{\\\"timestamp\\\":\\\"2025-11-12T10:30:00.000Z\\\",\\\"source\\\":\\\"customer@example.com\\\",\\\"messageId\\\":\\\"abcd1234-efgh-5678-ijkl-9012mnop3456\\\",\\\"destination\\\":[\\\"support@company.com\\\"],\\\"headersTruncated\\\":false,\\\"headers\\\":[{\\\"name\\\":\\\"From\\\",\\\"value\\\":\\\"customer@example.com\\\"},{\\\"name\\\":\\\"To\\\",\\\"value\\\":\\\"support@company.com\\\"},{\\\"name\\\":\\\"Subject\\\",\\\"value\\\":\\\"Question about product features\\\"}],\\\"commonHeaders\\\":{\\\"from\\\":[\\\"customer@example.com\\\"],\\\"to\\\":[\\\"support@company.com\\\"],\\\"subject\\\":\\\"Question about product features\\\"}},\\\"receipt\\\":{\\\"timestamp\\\":\\\"2025-11-12T10:30:00.000Z\\\",\\\"processingTimeMillis\\\":234,\\\"recipients\\\":[\\\"support@company.com\\\"],\\\"spamVerdict\\\":{\\\"status\\\":\\\"PASS\\\"},\\\"virusVerdict\\\":{\\\"status\\\":\\\"PASS\\\"},\\\"spfVerdict\\\":{\\\"status\\\":\\\"PASS\\\"},\\\"dkimVerdict\\\":{\\\"status\\\":\\\"PASS\\\"},\\\"action\\\":{\\\"type\\\":\\\"S3\\\",\\\"bucketName\\\":\\\"my-ses-emails-bucket\\\",\\\"objectKey\\\":\\\"emails/2025/11/12/abcd1234-efgh-5678-ijkl-9012mnop3456\\\"}},\\\"content\\\":\\\"From: customer@example.com\\\\r\\\\nTo: support@company.com\\\\r\\\\nSubject: Question about product features\\\\r\\\\nDate: Tue, 12 Nov 2025 10:30:00 +0000\\\\r\\\\nMessage-ID: <unique-message-id@mail.example.com>\\\\r\\\\n\\\\r\\\\nHello Support Team,\\\\r\\\\n\\\\r\\\\nI am interested in your cloud platform and would like to know more about the following features:\\\\r\\\\n\\\\r\\\\n1. Auto-scaling capabilities: Can the platform automatically scale based on traffic patterns?\\\\r\\\\n2. Data encryption: Is data encrypted both at rest and in transit?\\\\r\\\\n3. Integration options: What third-party services can be integrated with your platform?\\\\r\\\\n4. Pricing model: Do you offer volume discounts for enterprise customers?\\\\r\\\\n5. Support SLA: What is the guaranteed response time for critical issues?\\\\r\\\\n\\\\r\\\\nI would appreciate a detailed response covering these points. We are evaluating multiple providers and need to make a decision by the end of this month.\\\\r\\\\n\\\\r\\\\nThank you for your time.\\\\r\\\\n\\\\r\\\\nBest regards,\\\\r\\\\nJohn Smith\\\\r\\\\nSenior IT Manager\\\\r\\\\nAcme Corporation\\\\r\\\\ncustomer@example.com\\\\r\\\\n\\\\r\\\\n\\\"}\"}",
+      "attributes": {
+        "ApproximateReceiveCount": "1",
+        "SentTimestamp": "1731409800000",
+        "SenderId": "AIDAIT2UOQQY3AUEKVGXU",
+        "ApproximateFirstReceiveTimestamp": "1731409800000"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "7b270e59b47ff90a553787216d55d91d",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-west-2:123456789012:ses-email-queue-dev",
+      "awsRegion": "us-west-2"
+    }
+  ]
+}

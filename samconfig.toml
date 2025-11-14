@@ -7,7 +7,7 @@ stack_name = "bedrock-agentcore-lambda"
 s3_prefix = "bedrock-agentcore-lambda"
 region = "us-west-2"
 capabilities = "CAPABILITY_IAM"
-parameter_overrides = "Environment=\"dev\""
+parameter_overrides = "Environment=\"dev\" AgentRuntimeArn=\"\" SESEmailBucketName=\"\" SQSQueueArn=\"\""
 confirm_changeset = true
 resolve_s3 = true
 
@@ -15,7 +15,7 @@ resolve_s3 = true
 [dev.deploy]
 [dev.deploy.parameters]
 stack_name = "bedrock-agentcore-lambda-dev"
-parameter_overrides = "Environment=\"dev\""
+parameter_overrides = "Environment=\"dev\" AgentRuntimeArn=\"\" SESEmailBucketName=\"\" SQSQueueArn=\"\""
 capabilities = "CAPABILITY_IAM"
 confirm_changeset = true
 resolve_s3 = true
@@ -24,7 +24,7 @@ resolve_s3 = true
 [staging.deploy]
 [staging.deploy.parameters]
 stack_name = "bedrock-agentcore-lambda-staging"
-parameter_overrides = "Environment=\"staging\""
+parameter_overrides = "Environment=\"staging\" AgentRuntimeArn=\"\" SESEmailBucketName=\"\" SQSQueueArn=\"\""
 capabilities = "CAPABILITY_IAM"
 confirm_changeset = false
 resolve_s3 = true
@@ -33,7 +33,7 @@ resolve_s3 = true
 [prod.deploy]
 [prod.deploy.parameters]
 stack_name = "bedrock-agentcore-lambda-prod"
-parameter_overrides = "Environment=\"prod\""
+parameter_overrides = "Environment=\"prod\" AgentRuntimeArn=\"\" SESEmailBucketName=\"\" SQSQueueArn=\"\""
 capabilities = "CAPABILITY_IAM"
 confirm_changeset = true
 resolve_s3 = true

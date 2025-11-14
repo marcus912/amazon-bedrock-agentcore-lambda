@@ -1,9 +1,12 @@
 import json
 import logging
-import boto3
-from email import policy
-from email.parser import BytesParser
+import time
 from typing import Dict, Any
+
+# Import services and integrations (three-layer architecture)
+from services import email as email_service
+from services import s3 as s3_service
+from integrations import agentcore_invocation
 
 # Configure logging
 logger = logging.getLogger()
@@ -16,9 +19,6 @@ if not logger.handlers:
     formatter = logging.Formatter('%(levelname)s - %(message)s')
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
-
-# Initialize S3 client
-s3_client = boto3.client('s3')
 
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -95,14 +95,14 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
             logger.info(f"Email stored at: s3://{bucket_name}/{object_key}")
 
-            # Step 5: Fetch email from S3
+            # Step 5: Fetch email from S3 using services layer
             logger.info("Fetching email from S3...")
-            email_content = fetch_email_from_s3(bucket_name, object_key)
+            email_content = s3_service.fetch_email_from_s3(bucket_name, object_key)
             logger.info(f"Fetched {len(email_content):,} bytes from S3")
 
-            # Step 6: Parse email and extract body
+            # Step 6: Parse email and extract body using services layer
             logger.info("Parsing email...")
-            email_body = extract_email_body(email_content)
+            email_body = email_service.extract_email_body(email_content)
 
             logger.info(f"Email body extracted:")
             logger.info(
@@ -116,8 +116,59 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             if text_preview:
                 logger.info(f"Body preview: {text_preview}...")
 
-            # Step 7: Process the email
-            process_email(
+            # Step 7: Invoke agent to create GitHub issue
+            agent_response = None
+            # Use text body if available, otherwise HTML, otherwise empty
+            body_for_agent = email_body.get('text_body') or email_body.get('html_body') or ""
+
+            try:
+                if body_for_agent:
+                    logger.info("Invoking Bedrock agent to create GitHub issue from email...")
+                    agent_start_time = time.time()
+
+                    # Create prompt for agent to create GitHub issue using MCP tools
+                    prompt = create_github_issue_prompt(
+                        from_address=from_address,
+                        subject=subject,
+                        body=body_for_agent,
+                        timestamp=timestamp
+                    )
+
+                    # Invoke agent using integrations layer
+                    # Agent will use its GitHub MCP tool to create the issue
+                    agent_response = agentcore_invocation.invoke_agent(
+                        prompt=prompt,
+                        session_id=None  # New session for each email
+                    )
+
+                    agent_time = time.time() - agent_start_time
+                    logger.info(
+                        f"Agent invocation succeeded: "
+                        f"response_length={len(agent_response)}, "
+                        f"execution_time={agent_time:.2f}s"
+                    )
+
+                else:
+                    logger.warning("Email body is empty, skipping agent invocation")
+
+            except agentcore_invocation.ConfigurationError as e:
+                logger.error(f"Agent configuration error: {e}")
+                agent_response = f"[Configuration Error] {str(e)}"
+            except agentcore_invocation.AgentNotFoundException as e:
+                logger.error(f"Agent not found: {e}")
+                agent_response = f"[Agent Not Found] {str(e)}"
+            except agentcore_invocation.ThrottlingException as e:
+                logger.warning(f"Agent invocation throttled: {e}")
+                agent_response = f"[Throttled] {str(e)}"
+            except agentcore_invocation.ValidationException as e:
+                logger.error(f"Validation error: {e}")
+                agent_response = f"[Validation Error] {str(e)}"
+            except Exception as e:
+                logger.error(f"Unexpected error during agent invocation: {e}", exc_info=True)
+                agent_response = f"[Error] {str(e)}"
+
+            # Step 8: Log the email and agent response
+            log_email_processing(
                 subject=subject,
                 from_address=from_address,
                 to_addresses=to_addresses,
@@ -125,7 +176,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 text_body=email_body['text_body'],
                 html_body=email_body['html_body'],
                 attachments=email_body['attachments'],
-                ses_notification=ses_notification
+                agent_response=agent_response
             )
 
             logger.info(f"✓ Successfully processed message {message_id}")
@@ -142,103 +193,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     return {"batchItemFailures": batch_item_failures}
 
 
-def fetch_email_from_s3(bucket_name: str, object_key: str) -> bytes:
-    """
-    Fetch raw email content from S3.
-
-    Args:
-        bucket_name: S3 bucket name
-        object_key: S3 object key
-
-    Returns:
-        Raw email content as bytes
-    """
-    try:
-        response = s3_client.get_object(Bucket=bucket_name, Key=object_key)
-        return response['Body'].read()
-    except s3_client.exceptions.NoSuchKey:
-        logger.error(f"S3 object not found: s3://{bucket_name}/{object_key}")
-        raise ValueError(f"Email file not found in S3: {object_key}")
-    except s3_client.exceptions.NoSuchBucket:
-        logger.error(f"S3 bucket not found: {bucket_name}")
-        raise ValueError(f"S3 bucket not found: {bucket_name}")
-    except Exception as e:
-        logger.error(f"Failed to fetch from S3 s3://{bucket_name}/{object_key}: {e}")
-        raise
-
-
-def extract_email_body(email_content: bytes) -> Dict[str, Any]:
-    """
-    Parse raw email (MIME format) and extract body and attachments.
-
-    Args:
-        email_content: Raw email bytes from S3
-
-    Returns:
-        Dictionary with text_body, html_body, and attachments
-    """
-    # Parse the MIME email
-    msg = BytesParser(policy=policy.default).parsebytes(email_content)
-
-    result = {
-        'text_body': '',
-        'html_body': '',
-        'attachments': []
-    }
-
-    # Extract body parts
-    if msg.is_multipart():
-        for part in msg.walk():
-            content_type = part.get_content_type()
-            content_disposition = str(part.get("Content-Disposition", ""))
-
-            # Handle attachments
-            if "attachment" in content_disposition:
-                filename = part.get_filename()
-                if filename:
-                    result['attachments'].append({
-                        'filename': filename,
-                        'content_type': content_type,
-                        'size': len(part.get_payload(decode=True) or b'')
-                    })
-
-            # Extract text body (skip if already found or if it's part of multipart/alternative container)
-            elif content_type == "text/plain" and not result['text_body']:
-                try:
-                    # get_content() handles quoted-printable, base64, etc automatically
-                    result['text_body'] = part.get_content()
-                except Exception as e:
-                    logger.warning(f"Failed to decode text body with get_content(): {e}")
-                    # Fallback: manual decode with get_payload(decode=True)
-                    payload = part.get_payload(decode=True)
-                    if payload:
-                        result['text_body'] = payload.decode('utf-8',
-                                                             errors='ignore')
-
-            # Extract HTML body (skip if already found)
-            elif content_type == "text/html" and not result['html_body']:
-                try:
-                    # get_content() handles quoted-printable, base64, etc automatically
-                    result['html_body'] = part.get_content()
-                except Exception as e:
-                    logger.warning(f"Failed to decode HTML body with get_content(): {e}")
-                    # Fallback: manual decode with get_payload(decode=True)
-                    payload = part.get_payload(decode=True)
-                    if payload:
-                        result['html_body'] = payload.decode('utf-8',
-                                                             errors='ignore')
-    else:
-        # Non-multipart email (single part)
-        content_type = msg.get_content_type()
-        if content_type == "text/plain":
-            result['text_body'] = msg.get_content()
-        elif content_type == "text/html":
-            result['html_body'] = msg.get_content()
-
-    return result
-
-
-def process_email(
+def log_email_processing(
     subject: str,
     from_address: str,
     to_addresses: list,
@@ -246,11 +201,13 @@ def process_email(
     text_body: str,
     html_body: str,
     attachments: list,
-    ses_notification: dict
+    agent_response: str
 ) -> None:
     """
-    Process the extracted email body.
-    Customize this function with your business logic.
+    Log the processed email and agent response.
+
+    The agent (using GitHub MCP tools) handles GitHub issue creation.
+    This function only logs the results for monitoring and debugging.
 
     Args:
         subject: Email subject
@@ -260,9 +217,9 @@ def process_email(
         text_body: Plain text body
         html_body: HTML body
         attachments: List of attachment metadata
-        ses_notification: Full SES notification data
+        agent_response: Response from Bedrock agent (includes GitHub issue URL if created)
     """
-    logger.info("Processing email body...")
+    logger.info("Logging processed email and agent response...")
 
     # Use text body if available, otherwise HTML, otherwise empty
     body = text_body or html_body or ""
@@ -271,97 +228,109 @@ def process_email(
         logger.warning("Email has no text or HTML body content")
 
     logger.info("=" * 70)
-    logger.info("EMAIL CONTENT")
+    logger.info("EMAIL CONTENT & AGENT ANALYSIS")
     logger.info("=" * 70)
     logger.info(f"Subject: {subject}")
     logger.info(f"From: {from_address}")
     logger.info(f"To: {to_addresses}")
+    logger.info(f"Timestamp: {timestamp}")
     logger.info(f"Attachments: {len(attachments)}")
     if body:
-        logger.info(f"Body: {body[:500]}{'...' if len(body) > 500 else ''}")
+        logger.info(f"Body: {body[:300]}{'...' if len(body) > 300 else ''}")
     else:
         logger.info("Body: (empty)")
+
+    if agent_response:
+        logger.info("")
+        logger.info("AGENT RESPONSE (GitHub issue created by agent):")
+        logger.info("-" * 70)
+        logger.info(agent_response)
+        logger.info("-" * 70)
+    else:
+        logger.info("")
+        logger.info("AGENT RESPONSE: (not available)")
+
     logger.info("=" * 70)
-
-    # YOUR BUSINESS LOGIC HERE
-    # ==========================
-
-    # Example 1: Save to DynamoDB
-    # save_to_dynamodb({
-    #     'message_id': ses_notification['mail']['messageId'],
-    #     'subject': subject,
-    #     'from': from_address,
-    #     'to': to_addresses,
-    #     'body': body,
-    #     'timestamp': timestamp
-    # })
-
-    # Example 2: Create support ticket for bug reports
-    # if any(keyword in subject.lower() for keyword in ['bug', 'error', 'wrong', 'issue']):
-    #     create_support_ticket({
-    #         'title': subject,
-    #         'description': body,
-    #         'reporter': from_address,
-    #         'priority': 'medium'
-    #     })
-
-    # Example 3: Extract product info (like "pinnacle 2.2, firmware 1.2.3.4")
-    # product_info = extract_product_details(body)
-    # logger.info(f"Product info: {product_info}")
-
-    # Example 4: Send to Slack
-    # send_to_slack(
-    #     channel='#support',
-    #     message=f"New email from {from_address}: {subject}\n{body[:200]}..."
-    # )
-
-    # Example 5: Auto-reply
-    # send_auto_reply(from_address, subject)
-
     logger.info("Email processing completed")
+    logger.info("NOTE: GitHub issue creation is handled by the agent's MCP tools")
 
 
-# Helper functions for your business logic
-# ==========================================
+# Helper functions for GitHub issue creation
+# ============================================
+
+def create_github_issue_prompt(
+    from_address: str,
+    subject: str,
+    body: str,
+    timestamp: str,
+    repository: str = "bugs"
+) -> str:
+    """
+    Create the prompt for the AI agent to analyze the email and create a GitHub issue using MCP tools.
+
+    This prompt instructs the agent to:
+    1. Query knowledge base for the GitHub bug issue template
+    2. Extract relevant information from the customer email based on template structure
+    3. Format the issue body according to the template
+    4. Use GitHub MCP tools to create the issue directly
+    5. Return confirmation with the issue URL
+
+    Args:
+        from_address: Email sender
+        subject: Email subject line
+        body: Email body content
+        timestamp: When the email was received
+        repository: Target GitHub repository name (default: "bugs")
+
+    Returns:
+        str: Formatted prompt for the AI agent
+    """
+    prompt = f"""You are a technical support AI agent that creates GitHub bug issues from customer support emails.
+
+**TASK**: Analyze the following customer email and create a GitHub bug issue using your GitHub MCP tools.
+
+**CUSTOMER EMAIL**:
+From: {from_address}
+Subject: {subject}
+Received: {timestamp}
+
+Email Content:
+{body}
+
+**INSTRUCTIONS**:
+1. FIRST: Query your knowledge base for "github-bug-issue-template" to get the required structure and fields
+   - Identify what fields are required (e.g., steps to reproduce, expected behavior, actual behavior, environment details, etc.)
+   - If the template is not found in your knowledge base, respond with an error message indicating the template is missing
+2. Extract the corresponding information from the customer email to populate those required fields
+3. Validate that the email contains sufficient information:
+   - If critical required fields are missing from the email, respond with an error message listing which fields could not be extracted
+   - Include what information was found and what is missing
+4. Format the GitHub issue body according to the template structure you retrieved
+5. Apply standard labels and categories as defined in your knowledge base
+6. Use your GitHub MCP tools to create the issue in the "{repository}" repository
+7. After creating the issue, respond with:
+   - Confirmation that the issue was created
+   - The GitHub issue URL
+   - A brief summary of the issue
+
+**KNOWLEDGE BASE LOOKUP**:
+- Search term: "github-bug-issue-template"
+- This template defines the structure, required fields, and formatting guidelines
+- Reference examples of well-formatted GitHub issues from your knowledge base
+
+Please create the GitHub issue now using your MCP tools and confirm the result."""
+
+    return prompt
+
+
+# Additional helper functions
+# ============================
 
 def save_to_dynamodb(email_data: dict) -> None:
     """Save email to DynamoDB table."""
     # dynamodb = boto3.resource('dynamodb')
     # table = dynamodb.Table('Emails')
     # table.put_item(Item=email_data)
-    pass
-
-
-def create_support_ticket(ticket_data: dict) -> None:
-    """Create a support ticket in your system."""
-    # Example: Call Jira API, Zendesk, etc.
-    pass
-
-
-def extract_product_details(body: str) -> dict:
-    """Extract product and firmware info from email body."""
-    import re
-
-    product_info = {}
-
-    # Example: Extract "pinnacle 2.2"
-    product_match = re.search(r'pinnacle\s+([\d.]+)', body, re.IGNORECASE)
-    if product_match:
-        product_info['product'] = f"pinnacle {product_match.group(1)}"
-
-    # Example: Extract "firmware 1.2.3.4"
-    firmware_match = re.search(r'firmware\s+([\d.]+)', body, re.IGNORECASE)
-    if firmware_match:
-        product_info['firmware'] = firmware_match.group(1)
-
-    return product_info
-
-
-def send_to_slack(channel: str, message: str) -> None:
-    """Send notification to Slack."""
-    # import requests
-    # webhook_url = 'YOUR_SLACK_WEBHOOK_URL'
-    # requests.post(webhook_url, json={'channel': channel, 'text': message})
     pass
 
 

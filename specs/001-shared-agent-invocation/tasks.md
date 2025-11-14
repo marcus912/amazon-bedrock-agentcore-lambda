@@ -19,13 +19,13 @@
 
 **Purpose**: Project initialization and three-layer architecture setup
 
-- [ ] T001 Create `src/integrations/` directory for AWS service integrations
-- [ ] T002 Create `src/integrations/__init__.py` to make integrations a package
-- [ ] T003 Create `src/services/` directory for utility functions
-- [ ] T004 Create `src/services/__init__.py` to make services a package
-- [ ] T005 Create `tests/integrations/` directory for AWS integration tests
-- [ ] T006 Create `tests/services/` directory for service utility tests
-- [ ] T007 Update `src/requirements.txt` to add boto3>=1.34.0 and botocore>=1.34.0
+- [X] T001 Create `src/integrations/` directory for AWS service integrations
+- [X] T002 Create `src/integrations/__init__.py` to make integrations a package
+- [X] T003 Create `src/services/` directory for utility functions
+- [X] T004 Create `src/services/__init__.py` to make services a package
+- [X] T005 Create `tests/integrations/` directory for AWS integration tests
+- [X] T006 Create `tests/services/` directory for service utility tests
+- [X] T007 Update `src/requirements.txt` to add boto3>=1.34.0 and botocore>=1.34.0
 
 **Checkpoint**: Directory structure ready for three-layer architecture (handlers, services, integrations)
 
@@ -37,9 +37,9 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T008 Create custom exception classes in `src/integrations/agentcore_invocation.py`: ConfigurationError, AgentNotFoundException, ThrottlingException, ValidationException
-- [ ] T009 Implement environment variable reading for AGENT_RUNTIME_ARN in `src/integrations/agentcore_invocation.py` (at module import time, raise ConfigurationError if missing)
-- [ ] T010 Initialize boto3 bedrock-agentcore client with retry config in `src/integrations/agentcore_invocation.py` (module-level, thread-safe)
+- [X] T008 Create custom exception classes in `src/integrations/agentcore_invocation.py`: ConfigurationError, AgentNotFoundException, ThrottlingException, ValidationException
+- [X] T009 Implement environment variable reading for AGENT_RUNTIME_ARN in `src/integrations/agentcore_invocation.py` (at module import time, raise ConfigurationError if missing)
+- [X] T010 Initialize boto3 bedrock-agentcore client with retry config in `src/integrations/agentcore_invocation.py` (module-level, thread-safe)
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -53,13 +53,13 @@
 
 ### Implementation for User Story 1
 
-- [ ] T011 [US1] Implement `invoke_agent(prompt: str, session_id: Optional[str] = None, **kwargs) -> str` function signature in `src/integrations/agentcore_invocation.py`
-- [ ] T012 [US1] Implement session ID generation logic in `src/integrations/agentcore_invocation.py` (if None, generate 33+ char UUID4 with "session-" prefix)
-- [ ] T013 [US1] Implement Bedrock API call to `client.invoke_agent_runtime()` in `src/integrations/agentcore_invocation.py` with agentRuntimeArn, runtimeSessionId, payload parameters
-- [ ] T014 [US1] Implement payload formatting as JSON string `{"prompt": "text"}` in `src/integrations/agentcore_invocation.py`
-- [ ] T015 [US1] Implement EventStream response handling with `.read()` and JSON parsing in `src/integrations/agentcore_invocation.py`
-- [ ] T016 [US1] Implement response aggregation to collect all chunks and return complete agent output as string in `src/integrations/agentcore_invocation.py`
-- [ ] T017 [US1] Add module-level docstring and function docstring with usage example in `src/integrations/agentcore_invocation.py`
+- [X] T011 [US1] Implement `invoke_agent(prompt: str, session_id: Optional[str] = None, **kwargs) -> str` function signature in `src/integrations/agentcore_invocation.py`
+- [X] T012 [US1] Implement session ID generation logic in `src/integrations/agentcore_invocation.py` (if None, generate 33+ char UUID4 with "session-" prefix)
+- [X] T013 [US1] Implement Bedrock API call to `client.invoke_agent_runtime()` in `src/integrations/agentcore_invocation.py` with agentRuntimeArn, runtimeSessionId, payload parameters
+- [X] T014 [US1] Implement payload formatting as JSON string `{"prompt": "text"}` in `src/integrations/agentcore_invocation.py`
+- [X] T015 [US1] Implement EventStream response handling with `.read()` and JSON parsing in `src/integrations/agentcore_invocation.py`
+- [X] T016 [US1] Implement response aggregation to collect all chunks and return complete agent output as string in `src/integrations/agentcore_invocation.py`
+- [X] T017 [US1] Add module-level docstring and function docstring with usage example in `src/integrations/agentcore_invocation.py`
 
 **Checkpoint**: At this point, User Story 1 should be fully functional - handlers can import and invoke agents
 
@@ -73,10 +73,10 @@
 
 ### Implementation for User Story 2
 
-- [ ] T018 [US2] Update SAM template `template.yaml` to add AGENT_RUNTIME_ARN environment variable to all Lambda functions (under Globals or per function)
-- [ ] T019 [US2] Update `samconfig.toml` to include AGENT_RUNTIME_ARN parameter mapping for dev/staging/prod environments
-- [ ] T020 [US2] Add validation in `src/integrations/agentcore_invocation.py` module initialization to ensure AGENT_RUNTIME_ARN format is valid (starts with "arn:aws:bedrock-agentcore:")
-- [ ] T021 [US2] Add structured logging in `src/integrations/agentcore_invocation.py` to log agent ARN being used at module initialization (INFO level)
+- [X] T018 [US2] Update SAM template `template.yaml` to add AGENT_RUNTIME_ARN environment variable to all Lambda functions (under Globals or per function)
+- [X] T019 [US2] Update `samconfig.toml` to include AGENT_RUNTIME_ARN parameter mapping for dev/staging/prod environments
+- [X] T020 [US2] Add validation in `src/integrations/agentcore_invocation.py` module initialization to ensure AGENT_RUNTIME_ARN format is valid (starts with "arn:aws:bedrock-agentcore:")
+- [X] T021 [US2] Add structured logging in `src/integrations/agentcore_invocation.py` to log agent ARN being used at module initialization (INFO level)
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work - handlers can invoke agents with environment-specific configuration
 
@@ -90,12 +90,12 @@
 
 ### Implementation for User Story 3
 
-- [ ] T022 [P] [US3] Implement prompt validation in `src/integrations/agentcore_invocation.py` (non-empty string check before Bedrock call, raise ValidationException if invalid)
-- [ ] T023 [P] [US3] Implement session_id validation in `src/integrations/agentcore_invocation.py` (None or UUID4 format, raise ValidationException if invalid)
-- [ ] T024 [US3] Implement error mapping for botocore ClientError exceptions in `src/integrations/agentcore_invocation.py` (map ResourceNotFoundException → AgentNotFoundException, ThrottlingException → ThrottlingException, etc.)
-- [ ] T025 [US3] Implement retry logic with exponential backoff in `src/integrations/agentcore_invocation.py` (up to 3 attempts for transient errors: ThrottlingException, InternalServerException)
-- [ ] T026 [US3] Add structured logging for error scenarios in `src/integrations/agentcore_invocation.py` (log error type, agent ARN, retry attempts at ERROR level)
-- [ ] T027 [US3] Ensure exception messages include actionable information in `src/integrations/agentcore_invocation.py` (agent ARN, error code, retry advice)
+- [X] T022 [P] [US3] Implement prompt validation in `src/integrations/agentcore_invocation.py` (non-empty string check before Bedrock call, raise ValidationException if invalid)
+- [X] T023 [P] [US3] Implement session_id validation in `src/integrations/agentcore_invocation.py` (None or UUID4 format, raise ValidationException if invalid)
+- [X] T024 [US3] Implement error mapping for botocore ClientError exceptions in `src/integrations/agentcore_invocation.py` (map ResourceNotFoundException → AgentNotFoundException, ThrottlingException → ThrottlingException, etc.)
+- [X] T025 [US3] Implement retry logic with exponential backoff in `src/integrations/agentcore_invocation.py` (up to 3 attempts for transient errors: ThrottlingException, InternalServerException)
+- [X] T026 [US3] Add structured logging for error scenarios in `src/integrations/agentcore_invocation.py` (log error type, agent ARN, retry attempts at ERROR level)
+- [X] T027 [US3] Ensure exception messages include actionable information in `src/integrations/agentcore_invocation.py` (agent ARN, error code, retry advice)
 
 **Checkpoint**: All core agent invocation functionality complete - error handling is production-ready
 
@@ -109,12 +109,12 @@
 
 ### Implementation for Services Layer
 
-- [ ] T028 [P] Create `src/services/email.py` with `extract_email_body(email_content: str) -> str` function for extracting body text from email
-- [ ] T029 [P] Create `src/services/email.py` with `parse_email_headers(email_content: str) -> dict` function for parsing email headers
-- [ ] T030 [P] Create `src/services/s3.py` with `fetch_email_from_s3(bucket: str, key: str) -> str` function using boto3 S3 client
-- [ ] T031 [P] Create `src/services/s3.py` with `upload_processed_result(bucket: str, key: str, content: str)` function for uploading results to S3
-- [ ] T032 [P] Add error handling and logging to all service functions in `src/services/email.py` and `src/services/s3.py`
-- [ ] T033 [P] Add function docstrings with usage examples to all service functions in `src/services/email.py` and `src/services/s3.py`
+- [X] T028 [P] Create `src/services/email.py` with `extract_email_body(email_content: str) -> str` function for extracting body text from email
+- [X] T029 [P] Create `src/services/email.py` with `parse_email_headers(email_content: str) -> dict` function for parsing email headers
+- [X] T030 [P] Create `src/services/s3.py` with `fetch_email_from_s3(bucket: str, key: str) -> str` function using boto3 S3 client
+- [X] T031 [P] Create `src/services/s3.py` with `upload_processed_result(bucket: str, key: str, content: str)` function for uploading results to S3
+- [X] T032 [P] Add error handling and logging to all service functions in `src/services/email.py` and `src/services/s3.py`
+- [X] T033 [P] Add function docstrings with usage examples to all service functions in `src/services/email.py` and `src/services/s3.py`
 
 **Checkpoint**: Services layer complete - handlers can use email and S3 utilities
 
@@ -128,14 +128,14 @@
 
 ### Implementation for User Story 4
 
-- [ ] T034 [US4] Create `tests/events/sqs-email-with-agent-invocation.json` test event based on SES notification format with email body suitable for agent summarization
-- [ ] T035 [US4] Update existing SQS email handler `src/sqs_email_handler.py` to import services: `from services import email, s3`
-- [ ] T036 [US4] Update existing SQS email handler `src/sqs_email_handler.py` to import integrations: `from integrations import agentcore_invocation`
-- [ ] T037 [US4] Refactor handler logic in `src/sqs_email_handler.py` to use clean three-layer pattern: delegate S3 operations to `s3.fetch_email_from_s3()`, email parsing to `email.extract_email_body()`, agent invocation to `agentcore_invocation.invoke_agent()`
-- [ ] T038 [US4] Add agent invocation call in `src/sqs_email_handler.py` using prompt format: `f"Summarize this email: {body}"` with session_id=None
-- [ ] T039 [US4] Add error handling in `src/sqs_email_handler.py` to catch agent invocation exceptions (ConfigurationError, AgentNotFoundException, ThrottlingException, ValidationException) and return appropriate responses
-- [ ] T040 [US4] Update handler response structure in `src/sqs_email_handler.py` to include agent summary in output
-- [ ] T041 [US4] Add structured logging to handler in `src/sqs_email_handler.py` for agent invocation events (prompt length, response length, execution time)
+- [X] T034 [US4] Create `tests/events/sqs-email-with-agent-invocation.json` test event based on SES notification format with email body suitable for agent summarization
+- [X] T035 [US4] Update existing SQS email handler `src/sqs_email_handler.py` to import services: `from services import email, s3`
+- [X] T036 [US4] Update existing SQS email handler `src/sqs_email_handler.py` to import integrations: `from integrations import agentcore_invocation`
+- [X] T037 [US4] Refactor handler logic in `src/sqs_email_handler.py` to use clean three-layer pattern: delegate S3 operations to `s3.fetch_email_from_s3()`, email parsing to `email.extract_email_body()`, agent invocation to `agentcore_invocation.invoke_agent()`
+- [X] T038 [US4] Add agent invocation call in `src/sqs_email_handler.py` using prompt format: `f"Summarize this email: {body}"` with session_id=None
+- [X] T039 [US4] Add error handling in `src/sqs_email_handler.py` to catch agent invocation exceptions (ConfigurationError, AgentNotFoundException, ThrottlingException, ValidationException) and return appropriate responses
+- [X] T040 [US4] Update handler response structure in `src/sqs_email_handler.py` to include agent summary in output
+- [X] T041 [US4] Add structured logging to handler in `src/sqs_email_handler.py` for agent invocation events (prompt length, response length, execution time)
 
 **Checkpoint**: All user stories complete - SQS handler uses clean three-layer architecture with agent invocation
 
@@ -145,14 +145,14 @@
 
 **Purpose**: Documentation, validation, and production readiness improvements
 
-- [ ] T042 [P] Create example handler code snippet in `specs/001-shared-agent-invocation/contracts/lambda-handler-interface.md` showing clean usage pattern
-- [ ] T043 [P] Update project README.md with three-layer architecture documentation (handlers → services → integrations)
-- [ ] T044 Validate quickstart.md instructions by following them step-by-step in a clean environment
-- [ ] T045 Run `sam build` to verify all modules are packaged correctly
-- [ ] T046 Run `sam validate --lint` to ensure SAM template is valid
-- [ ] T047 Verify module has no side effects on import except environment variable reading (check for print statements, I/O operations)
-- [ ] T048 Review all structured logging statements to ensure they follow JSON format and include required fields (requestId, agentId, executionTime)
-- [ ] T049 [P] Update CLAUDE.md with completed feature information (architecture confirmed, modules deployed)
+- [X] T042 [P] Create example handler code snippet in `specs/001-shared-agent-invocation/contracts/lambda-handler-interface.md` showing clean usage pattern
+- [X] T043 [P] Update project README.md with three-layer architecture documentation (handlers → services → integrations)
+- [X] T044 Validate quickstart.md instructions by following them step-by-step in a clean environment
+- [X] T045 Run `sam build` to verify all modules are packaged correctly
+- [X] T046 Run `sam validate --lint` to ensure SAM template is valid
+- [X] T047 Verify module has no side effects on import except environment variable reading (check for print statements, I/O operations)
+- [X] T048 Review all structured logging statements to ensure they follow JSON format and include required fields (requestId, agentId, executionTime)
+- [X] T049 [P] Update CLAUDE.md with completed feature information (architecture confirmed, modules deployed)
 
 ---
 
