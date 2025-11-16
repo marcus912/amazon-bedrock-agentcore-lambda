@@ -59,14 +59,12 @@ uv run ruff format .
 
 **Deployment**:
 ```bash
-# Build SAM application
-uv tool run sam build
+# Deploy to dev (default)
+bin/deploy.sh
 
-# Deploy to dev
-uv tool run sam deploy --config-env dev
-
-# Deploy to prod
-uv tool run sam deploy --config-env prod
+# Deploy to specific environment
+ENVIRONMENT=staging bin/deploy.sh
+ENVIRONMENT=prod bin/deploy.sh
 ```
 
 ## Code Style

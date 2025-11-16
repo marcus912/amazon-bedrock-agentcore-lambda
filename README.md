@@ -1,350 +1,253 @@
 # Amazon Bedrock AgentCore Lambda Functions
 
-A collection of AWS Lambda functions for Amazon Bedrock AgentCore workflows, deployed and managed using AWS SAM (Serverless Application Model).
-
-## Overview
-
-This project contains multiple Lambda functions that support various Bedrock AgentCore operations:
-
-- **SQS Email Handler**: Process emails from Amazon SES via SQS (parse, extract, process)
-- _More Lambda functions coming soon..._
+AWS Lambda functions for Amazon Bedrock AgentCore workflows, deployed with AWS SAM.
 
 ## Features
 
-- Multi-function architecture with shared infrastructure
-- Environment support (dev, staging, prod)
-- Infrastructure as Code via SAM
-- Comprehensive unit tests
+- **SQS Email Handler**: Process emails from SES via SQS, invoke Bedrock agent to create GitHub issues
+- Three-layer architecture (handlers → services → integrations)
+- Multi-environment support (dev, staging, prod)
 - X-Ray tracing enabled
-- Cost optimized
+- Comprehensive error handling and retry logic
+
+## System Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     Email to GitHub Issue Flow                          │
+└─────────────────────────────────────────────────────────────────────────┘
+
+1. Customer Email
+   │
+   ▼
+2. Amazon SES (Simple Email Service)
+   ├──► S3 Bucket (stores raw email)
+   └──► SQS Queue (sends notification)
+        │
+        ▼
+3. Lambda Function (sqs-email-handler)
+   │
+   ├──► Fetch email from S3
+   ├──► Parse MIME content (text/HTML body, attachments)
+   └──► Invoke Bedrock Agent
+        │
+        ▼
+4. Bedrock Agent (linksys_email_agent)
+   │
+   ├──► Query Knowledge Base
+   │    ├── Bug report template
+   │    ├── Severity guidelines
+   │    └── Product catalog
+   │
+   ├──► Analyze email content
+   │    ├── Extract error messages
+   │    ├── Identify product/component
+   │    ├── Determine severity
+   │    └── Validate required fields
+   │
+   └──► GitHub MCP Tools
+        │
+        ▼
+5. GitHub Issue Created
+   │
+   └──► Agent returns confirmation with issue URL
+        │
+        ▼
+6. Lambda logs result to CloudWatch
+   └──► Response includes GitHub issue URL
+```
+
+**Step-by-Step**:
+
+1. **Customer sends email** → `support@yourdomain.com`
+2. **Amazon SES receives email** →
+   - Stores raw email in S3: `s3://bucket/email/msg-id`
+   - Sends notification to SQS queue
+3. **SQS triggers Lambda** → Event source mapping invokes `sqs-email-handler`
+4. **Lambda processes email** →
+   - Fetches email from S3 (`s3_service.fetch_email_from_s3`)
+   - Parses MIME content (`email_service.extract_email_body`)
+   - Creates prompt with email content
+5. **Lambda invokes Bedrock Agent** (`agentcore_invocation.invoke_agent`) →
+   - Sends prompt with customer email
+   - Agent queries knowledge base for template
+   - Agent extracts bug details from email
+   - Agent validates required fields exist
+6. **Agent creates GitHub issue** →
+   - Uses GitHub MCP tools (no GitHub code in Lambda)
+   - Formats issue per template
+   - Applies appropriate labels
+   - Sets severity/priority
+7. **Agent returns response** →
+   - Confirmation message
+   - GitHub issue URL
+   - Issue summary
+8. **Lambda logs result** → CloudWatch Logs includes agent response and issue URL
 
 ## Prerequisites
 
-- [uv](https://docs.astral.sh/uv/) - Python package and project manager
-- AWS CLI configured with credentials
+- [uv](https://docs.astral.sh/uv/) - Python package manager
+- AWS CLI configured
 - Python 3.13+
-- Amazon Bedrock access
-- Amazon SES verified domain (for email handler)
+- SAM CLI
+- Bedrock Agent with GitHub MCP tools
+- SES verified domain (for email processing)
 
 ## Project Structure
 
-This project uses a **three-layer architecture** for clean, maintainable Lambda handlers:
-
 ```
 .
-├── template.yaml              # SAM template (all Lambda functions)
-├── samconfig.toml            # Deployment configuration
-├── pyproject.toml            # Python project config (uv)
-├── uv.lock                   # Locked dependencies
-├── bin/
-│   └── deploy.sh             # Deployment script
+├── bin/deploy.sh             # Deployment script
 ├── src/
-│   ├── integrations/         # AWS service integrations (Layer 3)
-│   │   ├── __init__.py
-│   │   └── agentcore_invocation.py  # Bedrock Agent invocation
-│   ├── services/             # Utility functions (Layer 2)
-│   │   ├── __init__.py
-│   │   ├── email.py          # Email parsing utilities
-│   │   └── s3.py             # S3 operations utilities
-│   ├── sqs_email_handler.py  # SES email processing Lambda (Layer 1)
-│   └── requirements.txt      # Shared Lambda dependencies
-└── tests/
-    ├── integrations/         # Tests for AWS integrations
-    ├── services/             # Tests for utilities
-    ├── test_sqs_email_handler.py
-    └── events/               # Test event fixtures
+│   ├── integrations/         # AWS service wrappers (Layer 3)
+│   │   └── agentcore_invocation.py
+│   ├── services/             # Utilities (Layer 2)
+│   │   ├── email.py
+│   │   └── s3.py
+│   ├── sqs_email_handler.py  # Lambda handler (Layer 1)
+│   └── requirements.txt
+├── tests/
+│   ├── integrations/
+│   ├── services/
+│   └── events/
+├── template.yaml             # SAM infrastructure
+└── samconfig.toml           # Deployment config
 ```
-
-### Architecture Layers
-
-**Layer 1: Handlers** (`src/*.py`)
-- Business logic and Lambda entry points
-- Import and orchestrate services and integrations
-- Example: `sqs_email_handler.py`
-
-**Layer 2: Services** (`src/services/`)
-- Reusable utility functions
-- Email processing, S3 operations, etc.
-- Independent of AWS Lambda context
-
-**Layer 3: Integrations** (`src/integrations/`)
-- AWS service wrappers and clients
-- Bedrock Agent invocation, AWS SDK usage
-- Thread-safe, module-level initialization
 
 ## Quick Start
 
-### Setup
-
-Install dependencies and tools:
+### 1. Install Dependencies
 
 ```bash
-# Install Python dependencies
 uv sync --extra dev
-
-# Install AWS SAM CLI (if not already installed)
-uv tool install aws-sam-cli
 ```
 
-### Configure Environment
-
-Create your local configuration file:
+### 2. Configure Environment
 
 ```bash
-# Copy the example and fill in your values
 cp .env.example .env
-
-# Edit .env with your actual AWS resource identifiers:
-# - AGENT_RUNTIME_ARN
-# - SES_EMAIL_BUCKET_NAME
-# - SQS_QUEUE_ARN
-# - ENVIRONMENT (dev/staging/prod)
+# Edit .env with your AWS resource identifiers
 ```
 
-**Note**: `.env` is gitignored and will not be committed.
-
-### Deploy
-
-**One-command deployment:**
+### 3. Deploy
 
 ```bash
 bin/deploy.sh
 ```
 
-This script will:
-1. Load configuration from `.env`
-2. Validate all required parameters
-3. Build the SAM application
-4. Deploy to AWS
-
-### Verify Deployment
-
-```bash
-aws cloudformation describe-stack-resources \
-  --stack-name bedrock-agentcore-lambda-dev \
-  --query 'StackResources[?ResourceType==`AWS::Lambda::Function`].[LogicalResourceId,PhysicalResourceId]' \
-  --output table
-```
-
-## Lambda Functions
-
-### SQS Email Handler
-
-Processes emails from Amazon SES via SQS, parses MIME content, and executes business logic.
-
-**Resources:**
-- Lambda: `sqs-email-handler-{env}`
-- SQS Queue: `ses-email-queue-{env}`
-- DLQ: `ses-email-dlq-{env}`
-- S3 Bucket: `ses-emails-{AccountId}-{env}`
-
-**Post-Deployment Setup:**
-
-Configure SES Receipt Rule to send emails to the created SQS queue and S3 bucket. See stack outputs for ARNs:
-
-```bash
-aws cloudformation describe-stacks \
-  --stack-name bedrock-agentcore-lambda-dev \
-  --query 'Stacks[0].Outputs'
-```
-
-**Customization:**
-
-Edit `src/sqs_email_handler.py` function `process_email()` (line 241) to add your business logic.
-
-**Monitoring:**
-
-```bash
-# View logs
-uv tool run sam logs -n SQSEmailHandlerFunction --stack-name bedrock-agentcore-lambda-dev --tail
-
-# Check queue depth
-QUEUE_URL=$(aws cloudformation describe-stacks --stack-name bedrock-agentcore-lambda-dev --query 'Stacks[0].Outputs[?OutputKey==`EmailQueueUrl`].OutputValue' --output text)
-aws sqs get-queue-attributes --queue-url $QUEUE_URL --attribute-names ApproximateNumberOfMessages
-```
-
-### _Additional Functions_
-
-_Documentation for additional Lambda functions will be added as they are implemented._
+See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed instructions.
 
 ## Development
 
-### Adding a New Lambda Function
-
-1. Create handler file in `src/my_new_handler.py`
-2. Add function resource to `template.yaml`
-3. Create tests in `tests/test_my_new_handler.py` and `tests/events/my-new-event.json`
-4. Add outputs to `template.yaml`
-5. Build, test, deploy: `uv tool run sam build && uv run pytest tests/ -v && uv tool run sam deploy --config-env dev`
-
-### Running Tests
+### Run Tests
 
 ```bash
-# All tests
 uv run pytest tests/ -v
 
-# Specific test
-uv run pytest tests/test_sqs_email_handler.py -v
-
 # With coverage
-uv run pytest tests/ --cov=src --cov-report=html
+uv run pytest --cov=src --cov-report=html
 ```
 
 ### Local Testing
 
 ```bash
 # Invoke function locally
-uv tool run sam local invoke SQSEmailHandlerFunction -e tests/events/sqs-event.json
+sam local invoke SQSEmailHandlerFunction -e tests/events/sqs-event.json
 ```
 
-### Adding Dependencies
+### Add Lambda Function
 
-For development dependencies, add to `pyproject.toml` under `[project.optional-dependencies]`, then sync:
+1. Create handler: `src/my_handler.py`
+2. Add to `template.yaml`
+3. Create tests: `tests/test_my_handler.py`
+4. Deploy: `bin/deploy.sh`
 
+## Lambda Functions
+
+### SQS Email Handler
+
+**Purpose**: Process SES emails from SQS, invoke Bedrock agent to analyze email and create GitHub issues using agent's MCP tools.
+
+**Flow**:
+1. SQS triggers Lambda with SES notification
+2. Lambda fetches email from S3
+3. Parses MIME content (text/HTML body, attachments)
+4. Invokes Bedrock agent with email content
+5. Agent queries knowledge base for bug report template
+6. Agent creates GitHub issue via MCP tools
+7. Lambda logs agent response with issue URL
+
+**Configuration** (`src/sqs_email_handler.py:130-323`):
+- Default repository: `bugs`
+- Agent validates template exists in knowledge base
+- Agent validates email has required fields
+- Error handling for missing template or incomplete emails
+
+**Monitor**:
 ```bash
-uv sync --extra dev
-```
-
-For Lambda runtime dependencies, add to `src/requirements.txt`, then rebuild:
-
-```bash
-uv tool run sam build
-uv tool run sam deploy --config-env dev
+aws logs tail /aws/lambda/sqs-email-handler-dev --follow
 ```
 
 ## Configuration
 
 ### Environments
 
-Three environments configured in `samconfig.toml`:
+- **dev**: Development
+- **staging**: Pre-production
+- **prod**: Production
 
-- **dev**: Development (requires confirmation)
-- **staging**: Pre-production (auto-confirms)
-- **prod**: Production (requires confirmation)
+Edit `samconfig.toml` for environment-specific settings.
 
 ### Parameters
 
-Edit `samconfig.toml` to customize per environment (stack name, region, parameters).
-
-### Lambda Defaults
-
-Edit `template.yaml` Globals section for timeout, memory, runtime (python3.13), tracing.
-
-## Deployment
-
-### Deploy to Environments
-
-```bash
-# Set ENVIRONMENT in .env, then deploy
-bin/deploy.sh
-
-# Or deploy to specific environment
-ENVIRONMENT=dev bin/deploy.sh      # Development
-ENVIRONMENT=staging bin/deploy.sh  # Staging
-ENVIRONMENT=prod bin/deploy.sh     # Production
-```
-
-### Validate Template
-
-```bash
-uv tool run sam validate              # Basic validation
-uv tool run sam validate --lint       # With linting
-```
-
-### Delete Stack
-
-```bash
-# Empty S3 buckets first
-BUCKET_NAME=$(aws cloudformation describe-stacks --stack-name bedrock-agentcore-lambda-dev --query 'Stacks[0].Outputs[?OutputKey==`SESEmailBucketName`].OutputValue' --output text)
-aws s3 rm s3://$BUCKET_NAME --recursive
-
-# Delete stack
-aws cloudformation delete-stack --stack-name bedrock-agentcore-lambda-dev
-```
+Configure in `.env`:
+- `ENVIRONMENT`: Deployment environment
+- `AGENT_RUNTIME_ARN`: Bedrock agent ARN
+- `SES_EMAIL_BUCKET_NAME`: S3 bucket for SES emails
+- `SQS_QUEUE_ARN`: SQS queue ARN
 
 ## Monitoring
 
-### Logs
+### CloudWatch Logs
 
 ```bash
-# Tail logs for specific function
-uv tool run sam logs -n SQSEmailHandlerFunction --stack-name bedrock-agentcore-lambda-dev --tail
-
-# Or use AWS CLI
 aws logs tail /aws/lambda/sqs-email-handler-dev --follow
 ```
 
 ### Metrics
 
 Monitor in CloudWatch:
-- Invocation count
-- Error rate
-- Duration
-- Throttles
+- Invocation count, error rate, duration
+- Throttles, concurrent executions
+- SQS queue depth
 
 ### X-Ray Tracing
 
-View traces in AWS X-Ray console for:
-- Lambda execution time
-- AWS service calls (S3, SQS, Bedrock)
-- Error traces
+View traces in AWS X-Ray console for service call analysis and error traces.
 
 ## Troubleshooting
 
-### Build Fails
-
+**Build Fails**:
 ```bash
 rm -rf .aws-sam/
-uv tool run sam build
+sam build
 ```
 
-### Lambda Not Triggered
+**Lambda Not Triggered**:
+- Check CloudWatch Logs for errors
+- Verify IAM permissions (S3, SQS, Bedrock)
+- Check event source mapping
 
-1. Check CloudWatch Logs for errors
-2. Verify IAM permissions
-3. Check event source configuration
-4. Review metrics for throttling
-
-### Permission Errors
-
-Ensure Lambda roles have required permissions:
-- S3: `s3:GetObject`
-- SQS: `sqs:ReceiveMessage`, `sqs:DeleteMessage`
-- Bedrock: `bedrock:InvokeAgent`
-
-## Security
-
-- Least privilege IAM permissions
-- Never hardcode secrets (use Secrets Manager/Parameter Store)
-- Enable encryption at rest (S3, SQS)
-- Validate and sanitize all inputs
-- Use VPC for sensitive workloads
-
-## Cost Estimate
-
-- Lambda: ~$0.20 per 1M requests
-- SQS: First 1M/month free, then $0.40 per 1M
-- S3: Storage + requests
-- CloudWatch: Logs and metrics
-- X-Ray: $5 per 1M traces
-
-Typical usage: < $5/month per environment
+**Agent Invocation Fails**:
+- Verify `AGENT_RUNTIME_ARN` is correct
+- Check agent state is `PREPARED`
+- Ensure Lambda role has `bedrock-agent-runtime:InvokeAgent` permission
 
 ## Resources
 
 - [AWS SAM Documentation](https://docs.aws.amazon.com/serverless-application-model/)
 - [Amazon Bedrock Documentation](https://docs.aws.amazon.com/bedrock/)
 - [Lambda Best Practices](https://docs.aws.amazon.com/lambda/latest/dg/best-practices.html)
-- [Amazon SES Developer Guide](https://docs.aws.amazon.com/ses/latest/dg/)
-
-## Contributing
-
-When adding new Lambda functions:
-
-1. Follow existing code structure
-2. Add comprehensive unit tests
-3. Update this README with function documentation
-4. Document setup steps and required resources
 
 ## License
 
