@@ -53,11 +53,11 @@ echo ""
 
 # Build
 echo -e "${GREEN}🔨 Building SAM stack (all Lambda functions)...${NC}"
-uv tool run sam build
+sam build
 
 # Deploy
 echo -e "${GREEN}🚀 Deploying entire stack to AWS ($ENVIRONMENT)...${NC}"
-uv tool run sam deploy \
+sam deploy \
   --config-env "$ENVIRONMENT" \
   --parameter-overrides \
     "Environment=$ENVIRONMENT" \
