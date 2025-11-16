@@ -79,7 +79,7 @@ Resources:
             # Bedrock - Invoke AgentCore agents
             - Effect: Allow
               Action:
-                - bedrock:InvokeAgent
+                - bedrock-agent-runtime:InvokeAgent
               Resource: !Ref AgentRuntimeArn
 
             # CloudWatch Logs
