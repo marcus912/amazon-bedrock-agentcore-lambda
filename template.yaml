@@ -37,6 +37,9 @@ Globals:
       Variables:
         ENVIRONMENT: !Ref Environment
         AGENT_RUNTIME_ARN: !Ref AgentRuntimeArn
+        PROMPT_BUCKET: !Ref SESEmailBucketName
+        PROMPT_KEY_PREFIX: "prompts/"
+        PROMPT_CACHE_TTL: "300"  # Prompt cache TTL in seconds (5 minutes)
 
 Resources:
   # SQS Email Handler Lambda Function

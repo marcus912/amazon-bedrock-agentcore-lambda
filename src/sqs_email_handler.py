@@ -6,6 +6,7 @@ from typing import Dict, Any
 # Import services and integrations (three-layer architecture)
 from services import email as email_service
 from services import s3 as s3_service
+from services import prompts as prompt_service
 from integrations import agentcore_invocation
 
 # Configure logging
@@ -268,6 +269,8 @@ def create_github_issue_prompt(
     """
     Create the prompt for the AI agent to analyze the email and create a GitHub issue using MCP tools.
 
+    Loads prompt template from S3 (cached after first load) and formats with email data.
+
     This prompt instructs the agent to:
     1. Query knowledge base for the GitHub bug issue template
     2. Extract relevant information from the customer email based on template structure
@@ -284,41 +287,22 @@ def create_github_issue_prompt(
 
     Returns:
         str: Formatted prompt for the AI agent
+
+    Raises:
+        ValueError: If prompt template not found in S3
     """
-    prompt = f"""You are a technical support AI agent that creates GitHub bug issues from customer support emails.
+    # Load prompt template from S3 (cached on warm invocations)
+    prompt_template = prompt_service.load_prompt("github_issue.txt")
 
-**TASK**: Analyze the following customer email and create a GitHub bug issue using your GitHub MCP tools.
-
-**CUSTOMER EMAIL**:
-From: {from_address}
-Subject: {subject}
-Received: {timestamp}
-
-Email Content:
-{body}
-
-**INSTRUCTIONS**:
-1. FIRST: Query your knowledge base for "github-bug-issue-template" to get the required structure and fields
-   - Identify what fields are required (e.g., steps to reproduce, expected behavior, actual behavior, environment details, etc.)
-   - If the template is not found in your knowledge base, respond with an error message indicating the template is missing
-2. Extract the corresponding information from the customer email to populate those required fields
-3. Validate that the email contains sufficient information:
-   - If critical required fields are missing from the email, respond with an error message listing which fields could not be extracted
-   - Include what information was found and what is missing
-4. Format the GitHub issue body according to the template structure you retrieved
-5. Apply standard labels and categories as defined in your knowledge base
-6. Use your GitHub MCP tools to create the issue in the "{repository}" repository
-7. After creating the issue, respond with:
-   - Confirmation that the issue was created
-   - The GitHub issue URL
-   - A brief summary of the issue
-
-**KNOWLEDGE BASE LOOKUP**:
-- Search term: "github-bug-issue-template"
-- This template defines the structure, required fields, and formatting guidelines
-- Reference examples of well-formatted GitHub issues from your knowledge base
-
-Please create the GitHub issue now using your MCP tools and confirm the result."""
+    # Format with email data
+    prompt = prompt_service.format_prompt(
+        prompt_template,
+        from_address=from_address,
+        subject=subject,
+        body=body,
+        timestamp=timestamp,
+        repository=repository
+    )
 
     return prompt
 

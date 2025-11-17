@@ -97,13 +97,19 @@ AWS Lambda functions for Amazon Bedrock AgentCore workflows, deployed with AWS S
 
 ```
 .
-├── bin/deploy.sh             # Deployment script
+├── bin/
+│   ├── deploy.sh             # Deployment script
+│   └── update-prompts.sh     # Upload prompts to S3 (optional)
 ├── src/
 │   ├── integrations/         # AWS service wrappers (Layer 3)
 │   │   └── agentcore_invocation.py
 │   ├── services/             # Utilities (Layer 2)
 │   │   ├── email.py
-│   │   └── s3.py
+│   │   ├── s3.py
+│   │   └── prompts.py        # Prompt loader (filesystem + S3)
+│   ├── prompts/              # AI agent prompts (packaged with Lambda)
+│   │   ├── github_issue.txt
+│   │   └── README.md
 │   ├── sqs_email_handler.py  # Lambda handler (Layer 1)
 │   └── requirements.txt
 ├── tests/
@@ -136,6 +142,41 @@ bin/deploy.sh
 ```
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed instructions.
+
+## Prompt Management
+
+AI agent prompts are packaged with Lambda and can optionally be overridden via S3.
+
+**Loading Strategy**:
+
+1. **Cache** → Use cached version (fast)
+2. **S3 Override** → Load from S3 if `PROMPT_BUCKET` set (runtime updates)
+3. **Local Filesystem** → Use packaged prompts from `src/prompts/` (always works)
+
+**Update Prompts**:
+
+```bash
+# Option 1: Redeploy Lambda (prompts packaged with code)
+#  - Edit src/prompts/github_issue.txt
+#  - Run: bin/deploy.sh
+
+# Option 2: S3 Override (no redeploy needed!)
+#  - Edit src/prompts/github_issue.txt
+#  - Run: bin/update-prompts.sh
+#  - Next Lambda invocation uses S3 version
+```
+
+**Benefits**:
+- ✅ **Always works** - Prompts packaged with Lambda
+- ✅ **No duplication** - Single source of truth (`src/prompts/github_issue.txt`)
+- ✅ **Update without redeploying** - S3 override support
+- ✅ **Fast** - Prompts cached in memory
+- ✅ **Secure** - No hardcoded sensitive data
+- ✅ **Resilient** - Falls back to local filesystem if S3 fails
+
+**S3 Location**: `s3://${PROMPT_BUCKET}/prompts/` (configurable via environment variable)
+
+See [src/prompts/README.md](src/prompts/README.md) for detailed documentation.
 
 ## Development
 
