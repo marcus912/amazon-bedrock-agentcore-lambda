@@ -4,7 +4,7 @@ This directory contains prompt templates for Bedrock AI agents.
 
 ## Files
 
-- `github_issue.txt` - Prompt for creating GitHub issues from customer emails
+- `github_issue.txt` - Prompt for creating GitHub issues from support/QA team bug report emails
 
 ## How It Works
 
@@ -38,7 +38,7 @@ s3://${SES_EMAIL_BUCKET_NAME}/prompts/
 
 The `github_issue.txt` template uses these variables:
 
-- `{from_address}` - Customer email address
+- `{from_address}` - Support/QA team member email address
 - `{subject}` - Email subject line
 - `{body}` - Email body content
 - `{timestamp}` - Email received timestamp

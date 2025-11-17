@@ -379,7 +379,7 @@ After implementation, verify:
 
 **SQS Test Event Design**:
 - Based on existing `sqs-event.json` structure
-- Email body contains meaningful text for agent summarization (e.g., customer support inquiry)
+- Email body contains meaningful text for agent summarization (e.g., bug report from support/QA team)
 - S3 reference points to test bucket/key
 - Includes all required SQS + SES notification fields
 - Enables end-to-end testing: SQS → Handler → S3 → Email extraction → Agent invocation → Response

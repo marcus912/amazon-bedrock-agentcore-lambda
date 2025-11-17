@@ -17,7 +17,7 @@ AWS Lambda functions for Amazon Bedrock AgentCore workflows, deployed with AWS S
 │                     Email to GitHub Issue Flow                          │
 └─────────────────────────────────────────────────────────────────────────┘
 
-1. Customer Email
+1. Bug Report Email (from Support/QA Team)
    │
    ▼
 2. Amazon SES (Simple Email Service)
@@ -59,7 +59,7 @@ AWS Lambda functions for Amazon Bedrock AgentCore workflows, deployed with AWS S
 
 **Step-by-Step**:
 
-1. **Customer sends email** → `support@yourdomain.com`
+1. **Support/QA team sends bug report email** → `support@yourdomain.com`
 2. **Amazon SES receives email** →
    - Stores raw email in S3: `s3://bucket/email/msg-id`
    - Sends notification to SQS queue
@@ -69,7 +69,7 @@ AWS Lambda functions for Amazon Bedrock AgentCore workflows, deployed with AWS S
    - Parses MIME content (`email_service.extract_email_body`)
    - Creates prompt with email content
 5. **Lambda invokes Bedrock Agent** (`agentcore_invocation.invoke_agent`) →
-   - Sends prompt with customer email
+   - Sends prompt with bug report email
    - Agent queries knowledge base for template
    - Agent extracts bug details from email
    - Agent validates required fields exist

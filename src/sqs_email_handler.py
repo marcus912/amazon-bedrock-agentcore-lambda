@@ -294,7 +294,7 @@ def create_github_issue_prompt(
 
     This prompt instructs the agent to:
     1. Query knowledge base for the GitHub bug issue template
-    2. Extract relevant information from the customer email based on template structure
+    2. Extract relevant information from the bug report email based on template structure
     3. Format the issue body according to the template
     4. Use GitHub MCP tools to create the issue directly
     5. Return confirmation with the issue URL
