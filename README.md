@@ -32,7 +32,7 @@ AWS Lambda functions for Amazon Bedrock AgentCore workflows, deployed with AWS S
    └──► Invoke Bedrock Agent
         │
         ▼
-4. Bedrock Agent (linksys_email_agent)
+4. Bedrock Agent
    │
    ├──► Query Knowledge Base
    │    ├── Bug report template

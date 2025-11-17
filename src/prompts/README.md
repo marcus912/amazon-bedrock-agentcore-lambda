@@ -119,14 +119,14 @@ Environment:
 
 ```bash
 # List all prompts
-aws s3 ls s3://linksys-cloud-issue-mail/prompts/
+aws s3 ls s3://${BUCKET_NAME}/prompts/
 
 # Download a prompt
-aws s3 cp s3://linksys-cloud-issue-mail/prompts/github_issue.txt -
+aws s3 cp s3://${BUCKET_NAME}/prompts/github_issue.txt -
 
 # View prompt versions (if versioning enabled)
 aws s3api list-object-versions \
-  --bucket linksys-cloud-issue-mail \
+  --bucket ${BUCKET_NAME} \
   --prefix prompts/github_issue.txt
 ```
 
@@ -136,7 +136,7 @@ To keep history of prompt changes:
 
 ```bash
 aws s3api put-bucket-versioning \
-  --bucket linksys-cloud-issue-mail \
+  --bucket ${BUCKET_NAME} \
   --versioning-configuration Status=Enabled
 ```
 
