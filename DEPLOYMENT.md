@@ -94,7 +94,7 @@ Ensure your IAM user has:
 
 Check:
 1. AGENT_RUNTIME_ARN is correct
-2. Lambda has `bedrock-agent-runtime:InvokeAgent` permission (check template.yaml line 82)
+2. Lambda has `bedrock-agentcore:InvokeAgentRuntime` permission (check template.yaml line 85 - for bedrock-agentcore client)
 3. Agent exists and is in `PREPARED` state
 
 ### SQS Messages Not Triggering

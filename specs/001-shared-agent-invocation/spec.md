@@ -134,8 +134,8 @@ Developers need SQS test events to verify the shared module integrates correctly
 
 - Amazon Bedrock service available in deployment region
 - AgentCore agents pre-created with ARNs configured in environment variables
-- boto3 >= 1.34.0 (Bedrock Agent Runtime support)
-- Lambda execution role with `bedrock:InvokeAgent` permission
+- boto3 >= 1.34.0 (Bedrock AgentCore support)
+- Lambda execution role with `bedrock-agentcore:InvokeAgentRuntime` permission (for bedrock-agentcore client)
 - Python logging module for structured logging
 - uuid and re modules for validation (Python standard library)
 

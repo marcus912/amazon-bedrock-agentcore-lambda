@@ -373,8 +373,8 @@ BEDROCK_CONFIG = Config(
     retries={'max_attempts': 3, 'mode': 'adaptive'}
 )
 
-# Initialize Bedrock client (outside handler for connection pooling)
-bedrock_client = boto3.client('bedrock-agent-runtime', config=BEDROCK_CONFIG)
+# Initialize Bedrock AgentCore client (outside handler for connection pooling)
+bedrock_client = boto3.client('bedrock-agentcore', config=BEDROCK_CONFIG)
 
 
 def lambda_handler(event: dict, context: Any) -> dict:
@@ -799,8 +799,8 @@ git push origin 001-shared-agent-invocation
 
 ### Bedrock permission denied in dev
 
-**Cause**: Lambda execution role missing `bedrock:InvokeAgent`
-**Fix**: Verify IAM policy in SAM template includes Bedrock permissions
+**Cause**: Lambda execution role missing `bedrock-agentcore:InvokeAgentRuntime`
+**Fix**: Verify IAM policy in SAM template includes Bedrock AgentCore permissions (uses bedrock-agentcore client)
 
 ### Coverage below 80%
 

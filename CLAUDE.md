@@ -79,11 +79,12 @@ Python 3.13: Follow PEP 8 and type hints where beneficial
 
 **Components**:
 - `src/integrations/agentcore_invocation.py`: Core agent invocation module
+  - Uses `boto3.client('bedrock-agentcore')` with `invoke_agent_runtime()` method
   - `invoke_agent(prompt, session_id=None)`: Main API
   - Custom exceptions: ConfigurationError, AgentNotFoundException, ThrottlingException, ValidationException
   - Automatic session ID generation (33+ chars, UUID4)
   - Retry logic with exponential backoff (3 attempts)
-  - EventStream response parsing
+  - JSON response parsing with graceful fallback
 - `src/services/email.py`: Email parsing utilities
   - `extract_email_body(email_content)`: Extract plain text from emails
   - `parse_email_headers(email_content)`: Parse email headers

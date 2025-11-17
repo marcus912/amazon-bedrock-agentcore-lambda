@@ -119,6 +119,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
             # Step 7: Invoke agent to create GitHub issue
             agent_response = None
+            agent_success = False  # Track whether agent invocation succeeded
             # Use text body if available, otherwise HTML, otherwise empty
             body_for_agent = email_body.get('text_body') or email_body.get('html_body') or ""
 
@@ -143,29 +144,31 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     )
 
                     agent_time = time.time() - agent_start_time
+                    agent_success = True  # Mark as successful
                     logger.info(
-                        f"Agent invocation succeeded: "
+                        f"✓ Agent invocation SUCCEEDED: "
                         f"response_length={len(agent_response)}, "
                         f"execution_time={agent_time:.2f}s"
                     )
 
                 else:
                     logger.warning("Email body is empty, skipping agent invocation")
+                    agent_response = "[Skipped] Email body is empty"
 
             except agentcore_invocation.ConfigurationError as e:
-                logger.error(f"Agent configuration error: {e}")
+                logger.error(f"✗ Agent invocation FAILED - Configuration error: {e}")
                 agent_response = f"[Configuration Error] {str(e)}"
             except agentcore_invocation.AgentNotFoundException as e:
-                logger.error(f"Agent not found: {e}")
+                logger.error(f"✗ Agent invocation FAILED - Agent not found: {e}")
                 agent_response = f"[Agent Not Found] {str(e)}"
             except agentcore_invocation.ThrottlingException as e:
-                logger.warning(f"Agent invocation throttled: {e}")
+                logger.warning(f"✗ Agent invocation FAILED - Throttled (will retry): {e}")
                 agent_response = f"[Throttled] {str(e)}"
             except agentcore_invocation.ValidationException as e:
-                logger.error(f"Validation error: {e}")
+                logger.error(f"✗ Agent invocation FAILED - Validation error: {e}")
                 agent_response = f"[Validation Error] {str(e)}"
             except Exception as e:
-                logger.error(f"Unexpected error during agent invocation: {e}", exc_info=True)
+                logger.error(f"✗ Agent invocation FAILED - Unexpected error: {e}", exc_info=True)
                 agent_response = f"[Error] {str(e)}"
 
             # Step 8: Log the email and agent response
@@ -177,10 +180,18 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 text_body=email_body['text_body'],
                 html_body=email_body['html_body'],
                 attachments=email_body['attachments'],
-                agent_response=agent_response
+                agent_response=agent_response,
+                agent_success=agent_success
             )
 
-            logger.info(f"✓ Successfully processed message {message_id}")
+            # Log final status based on agent success
+            if agent_success:
+                logger.info(f"✓ Successfully processed message {message_id} (agent invocation succeeded)")
+            else:
+                logger.warning(
+                    f"⚠ Processed message {message_id} with DEGRADED service "
+                    f"(email logged but agent invocation failed - see errors above)"
+                )
 
         except Exception as e:
             logger.error(f"✗ Error processing message {message_id}: {str(e)}",
@@ -202,7 +213,8 @@ def log_email_processing(
     text_body: str,
     html_body: str,
     attachments: list,
-    agent_response: str
+    agent_response: str,
+    agent_success: bool
 ) -> None:
     """
     Log the processed email and agent response.
@@ -219,6 +231,7 @@ def log_email_processing(
         html_body: HTML body
         attachments: List of attachment metadata
         agent_response: Response from Bedrock agent (includes GitHub issue URL if created)
+        agent_success: Whether agent invocation succeeded
     """
     logger.info("Logging processed email and agent response...")
 
@@ -243,7 +256,10 @@ def log_email_processing(
 
     if agent_response:
         logger.info("")
-        logger.info("AGENT RESPONSE (GitHub issue created by agent):")
+        if agent_success:
+            logger.info("AGENT RESPONSE (GitHub issue created by agent):")
+        else:
+            logger.info("AGENT ERROR (GitHub issue NOT created):")
         logger.info("-" * 70)
         logger.info(agent_response)
         logger.info("-" * 70)
@@ -252,8 +268,13 @@ def log_email_processing(
         logger.info("AGENT RESPONSE: (not available)")
 
     logger.info("=" * 70)
-    logger.info("Email processing completed")
-    logger.info("NOTE: GitHub issue creation is handled by the agent's MCP tools")
+    if agent_success:
+        logger.info("Email processing completed successfully")
+        logger.info("NOTE: GitHub issue creation is handled by the agent's MCP tools")
+    else:
+        logger.info("Email processing completed with DEGRADED service")
+        logger.info("WARNING: Agent invocation failed - GitHub issue may NOT have been created")
+        logger.info("MANUAL ACTION: Review error logs above and create GitHub issue manually if needed")
 
 
 # Helper functions for GitHub issue creation

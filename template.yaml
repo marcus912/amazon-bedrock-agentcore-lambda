@@ -79,11 +79,12 @@ Resources:
                 - sqs:GetQueueAttributes
               Resource: !Ref SQSQueueArn
 
-            # Bedrock - Invoke AgentCore agents
+            # Bedrock - Invoke AgentCore agents (uses bedrock-agentcore client)
+            # Note: Wildcard needed because actual resource is: {AgentRuntimeArn}/runtime-endpoint/DEFAULT
             - Effect: Allow
               Action:
-                - bedrock-agent-runtime:InvokeAgent
-              Resource: !Ref AgentRuntimeArn
+                - bedrock-agentcore:InvokeAgentRuntime
+              Resource: !Sub '${AgentRuntimeArn}/*'
 
             # CloudWatch Logs
             - Effect: Allow

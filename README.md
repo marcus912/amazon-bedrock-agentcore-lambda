@@ -282,7 +282,7 @@ sam build
 **Agent Invocation Fails**:
 - Verify `AGENT_RUNTIME_ARN` is correct
 - Check agent state is `PREPARED`
-- Ensure Lambda role has `bedrock-agent-runtime:InvokeAgent` permission
+- Ensure Lambda role has `bedrock-agentcore:InvokeAgentRuntime` permission (for bedrock-agentcore client)
 
 ## Resources
 

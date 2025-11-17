@@ -2,15 +2,14 @@
 Amazon Bedrock AgentCore Invocation Module
 
 This module provides a simple interface for invoking Bedrock AgentCore agents
-from Lambda handlers. It handles configuration, retry logic, error mapping,
-and response parsing.
+from Lambda handlers using the bedrock-agentcore client API.
 
 Usage:
     from integrations import agentcore_invocation
 
     response = agentcore_invocation.invoke_agent(
         prompt="What is the weather today?",
-        session_id=None  # Optional, will be auto-generated if None
+        session_id=None  # Optional, will be auto-generated (33+ chars)
     )
     print(response)  # Agent's response as a string
 """
@@ -77,10 +76,10 @@ def _read_agent_runtime_arn() -> str:
         )
 
     # Validate ARN format (basic check)
-    if not agent_runtime_arn.startswith('arn:aws:bedrock-agentcore:'):
+    if not agent_runtime_arn.startswith('arn:aws:bedrock'):
         raise ConfigurationError(
             f"AGENT_RUNTIME_ARN has invalid format. "
-            f"Expected ARN starting with 'arn:aws:bedrock-agentcore:', "
+            f"Expected ARN starting with 'arn:aws:bedrock', "
             f"got: '{agent_runtime_arn[:50]}...'"
         )
 
@@ -90,10 +89,10 @@ def _read_agent_runtime_arn() -> str:
 
 def _initialize_bedrock_client():
     """
-    Initialize boto3 Bedrock Agent Runtime client with retry configuration.
+    Initialize boto3 Bedrock AgentCore client with retry configuration.
 
     Returns:
-        boto3.client: Configured Bedrock Agent Runtime client
+        boto3.client: Configured Bedrock AgentCore client
     """
     # Configure retry strategy for transient failures
     retry_config = Config(
@@ -103,12 +102,17 @@ def _initialize_bedrock_client():
         }
     )
 
+    # Get region from environment or use default
+    region = os.environ.get('AWS_REGION', os.environ.get('AWS_DEFAULT_REGION', 'us-west-2'))
+
+    # Create Bedrock AgentCore client (NOT bedrock-agent-runtime)
     client = boto3.client(
-        'bedrock-agent-runtime',
+        'bedrock-agentcore',
+        region_name=region,
         config=retry_config
     )
 
-    logger.info("Bedrock Agent Runtime client initialized successfully")
+    logger.info(f"Bedrock AgentCore client initialized (region: {region})")
     return client
 
 
@@ -139,7 +143,7 @@ def _generate_session_id() -> str:
     return session_id
 
 
-def invoke_agent(prompt: str, session_id: Optional[str] = None, **kwargs) -> str:
+def invoke_agent(prompt: str, session_id: Optional[str] = None) -> str:
     """
     Invoke a Bedrock AgentCore agent with the given prompt.
 
@@ -151,7 +155,6 @@ def invoke_agent(prompt: str, session_id: Optional[str] = None, **kwargs) -> str
         prompt: The input text to send to the agent (required, non-empty string)
         session_id: Optional session ID for multi-turn conversations.
                    If None, a new session ID will be generated automatically.
-        **kwargs: Additional parameters (reserved for future use)
 
     Returns:
         str: The agent's complete response text
@@ -213,7 +216,7 @@ def invoke_agent(prompt: str, session_id: Optional[str] = None, **kwargs) -> str
     else:
         logger.info(f"Using provided session ID: {session_id}")
 
-    # Format payload as JSON string (Bedrock requirement)
+    # Format payload as JSON string (AgentCore API requirement)
     payload = json.dumps({"prompt": prompt})
 
     logger.info(
@@ -228,16 +231,32 @@ def invoke_agent(prompt: str, session_id: Optional[str] = None, **kwargs) -> str
 
     for attempt in range(max_retries):
         try:
-            # Call Bedrock Agent Runtime API
-            response = bedrock_client.invoke_agent(
-                agentId=AGENT_RUNTIME_ARN,
-                agentAliasId='TSTALIASID',  # Use test alias or extract from ARN
-                sessionId=session_id,
-                inputText=prompt
+            # Call Bedrock AgentCore API
+            response = bedrock_client.invoke_agent_runtime(
+                agentRuntimeArn=AGENT_RUNTIME_ARN,  # Use full ARN
+                runtimeSessionId=session_id,
+                payload=payload,
+                qualifier="DEFAULT"  # Optional qualifier
             )
 
-            # Parse EventStream response
-            agent_output = _parse_eventstream_response(response)
+            # Parse AgentCore response
+            response_body = response['response'].read()
+
+            # Handle empty response
+            if not response_body:
+                logger.warning("Agent returned empty response")
+                return ""
+
+            # Parse JSON response
+            try:
+                response_data = json.loads(response_body)
+            except json.JSONDecodeError as json_err:
+                logger.error(f"Failed to parse JSON response: {json_err}, body: {response_body[:200]}")
+                # Return raw response if JSON parsing fails
+                return response_body.decode('utf-8') if isinstance(response_body, bytes) else str(response_body)
+
+            # Extract the agent output from response
+            agent_output = response_data.get('response', response_data.get('output', str(response_data)))
 
             execution_time = time.time() - start_time
             logger.info(
@@ -293,53 +312,3 @@ def invoke_agent(prompt: str, session_id: Optional[str] = None, **kwargs) -> str
                     f"agent_arn={AGENT_RUNTIME_ARN[:50]}..."
                 )
                 raise
-
-
-def _parse_eventstream_response(response: dict) -> str:
-    """
-    Parse the EventStream response from Bedrock Agent Runtime.
-
-    Bedrock returns responses as an EventStream with multiple chunks.
-    This function reads and aggregates all chunks into a complete response.
-
-    Args:
-        response: The response dict from invoke_agent() API call
-
-    Returns:
-        str: The complete agent output as a string
-
-    Raises:
-        Exception: If response parsing fails
-    """
-    output_text = ""
-
-    # Check if response contains the expected structure
-    if 'response' not in response:
-        logger.error(f"Unexpected response structure: {response.keys()}")
-        raise Exception("Invalid response structure from Bedrock Agent Runtime")
-
-    # Read the streaming response body
-    event_stream = response['response']
-
-    try:
-        # Call .read() to get the response content
-        response_bytes = event_stream.read()
-
-        # Parse JSON response
-        if response_bytes:
-            try:
-                response_data = json.loads(response_bytes.decode('utf-8'))
-                output_text = response_data.get('output', '')
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse JSON response: {e}")
-                # If JSON parsing fails, use raw bytes as fallback
-                output_text = response_bytes.decode('utf-8', errors='ignore')
-        else:
-            logger.warning("Received empty response from agent")
-            output_text = ""
-
-    except Exception as e:
-        logger.error(f"Error reading EventStream: {e}")
-        raise
-
-    return output_text

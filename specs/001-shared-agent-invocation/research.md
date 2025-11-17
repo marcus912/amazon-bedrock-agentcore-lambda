@@ -10,34 +10,36 @@ This document consolidates research findings for implementing a Lambda function 
 
 ## Research Areas
 
-### 1. AWS Bedrock Agent Runtime API
+### 1. AWS Bedrock AgentCore API
 
-**Decision**: Use `boto3` client `bedrock-agent-runtime` with `invoke_agent` operation
+**Decision**: Use `boto3` client `bedrock-agentcore` with `invoke_agent_runtime` operation
 
 **Rationale**:
-- Official AWS SDK for Python (boto3) provides full support for Bedrock Agent Runtime
-- `invoke_agent` API accepts: `agentId`, `agentAliasId`, `sessionId`, `inputText`
-- Returns streaming response with agent output, citations, and session state
-- Supports session management for multi-turn conversations via `sessionId`
+- Official AWS SDK for Python (boto3) provides support for Bedrock AgentCore
+- `invoke_agent_runtime` API accepts: `agentRuntimeArn` (full ARN), `runtimeSessionId`, `payload` (JSON string)
+- Returns JSON response with agent output
+- Supports session management for multi-turn conversations via `runtimeSessionId` (must be 33+ chars)
 - Handles authentication via IAM role (no credentials in code)
+- IAM permission required: `bedrock-agentcore:InvokeAgentRuntime`
 
 **API Reference**:
 ```python
 import boto3
+import json
 
-client = boto3.client('bedrock-agent-runtime', region_name='us-west-2')
+client = boto3.client('bedrock-agentcore', region_name='us-west-2')
 
-response = client.invoke_agent(
-    agentId='AGENT_ID',
-    agentAliasId='AGENT_ALIAS_ID',
-    sessionId='SESSION_ID',  # Optional, auto-generated if not provided
-    inputText='User input here'
+response = client.invoke_agent_runtime(
+    agentRuntimeArn='arn:aws:bedrock-agentcore:us-west-2:ACCOUNT:runtime/AGENT-ID',
+    runtimeSessionId='session-UUID',  # Must be 33+ characters
+    payload=json.dumps({"prompt": "User input here"}),
+    qualifier='DEFAULT'
 )
 
-# Response is EventStream - need to iterate chunks
-for event in response['completion']:
-    if 'chunk' in event:
-        data = event['chunk']['bytes'].decode('utf-8')
+# Response is JSON
+response_body = response['response'].read()
+response_data = json.loads(response_body)
+agent_output = response_data.get('response', response_data.get('output', ''))
 ```
 
 **Alternatives Considered**:
@@ -108,7 +110,7 @@ config = Config(
     }
 )
 
-client = boto3.client('bedrock-agent-runtime', config=config)
+client = boto3.client('bedrock-agentcore', config=config)
 
 def invoke_with_retry(agent_id, agent_alias_id, session_id, input_text, max_retries=3):
     retryable_errors = ['ThrottlingException', 'InternalServerException', 'ServiceQuotaExceededException']
@@ -390,7 +392,7 @@ response2 = invoke_agent(agent_id, alias_id, response1['sessionId'], "Follow-up 
 3. **Security**:
    - No credentials in code (IAM role only)
    - Sanitize PII from logs (input/output text length only, not content)
-   - Use least-privilege IAM permissions (`bedrock:InvokeAgent` only)
+   - Use least-privilege IAM permissions (`bedrock-agentcore:InvokeAgentRuntime` for AgentCore)
    - Validate all inputs (prevent injection attacks)
 
 4. **Observability**:

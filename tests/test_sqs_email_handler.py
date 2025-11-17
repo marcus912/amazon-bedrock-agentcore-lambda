@@ -73,7 +73,7 @@ class TestLambdaHandler:
         }
 
         # Mock Bedrock agent response
-        mock_bedrock_client.invoke_agent.return_value = {
+        mock_bedrock_client.invoke_agent_runtime.return_value = {
             'response': MagicMock(
                 read=lambda: json.dumps({'output': 'Agent summary of the email'}).encode('utf-8')
             )
@@ -88,7 +88,7 @@ class TestLambdaHandler:
             Bucket='ses-emails-123456789012-dev',
             Key='test-email-key'
         )
-        mock_bedrock_client.invoke_agent.assert_called_once()
+        mock_bedrock_client.invoke_agent_runtime.assert_called_once()
 
     @patch.dict(os.environ, {
         'AGENT_RUNTIME_ARN': 'arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/test-agent-ABC123'
@@ -142,7 +142,7 @@ class TestLambdaHandler:
 
         # Mock Bedrock agent failure
         from botocore.exceptions import ClientError
-        mock_bedrock_client.invoke_agent.side_effect = ClientError(
+        mock_bedrock_client.invoke_agent_runtime.side_effect = ClientError(
             {'Error': {'Code': 'ThrottlingException', 'Message': 'Throttled'}},
             'InvokeAgentRuntime'
         )
@@ -192,7 +192,7 @@ class TestLambdaHandler:
         mock_s3_client.get_object.return_value = {
             'Body': MagicMock(read=lambda: sample_email_content)
         }
-        mock_bedrock_client.invoke_agent.return_value = {
+        mock_bedrock_client.invoke_agent_runtime.return_value = {
             'response': MagicMock(
                 read=lambda: json.dumps({'output': 'Summary'}).encode('utf-8')
             )
@@ -204,7 +204,7 @@ class TestLambdaHandler:
         # All should succeed
         assert result == {"batchItemFailures": []}
         assert mock_s3_client.get_object.call_count == 3
-        assert mock_bedrock_client.invoke_agent.call_count == 3
+        assert mock_bedrock_client.invoke_agent_runtime.call_count == 3
 
 
 if __name__ == '__main__':
