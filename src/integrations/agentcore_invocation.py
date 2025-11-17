@@ -97,7 +97,7 @@ def _initialize_bedrock_client():
     # Configure retry strategy for transient failures
     retry_config = Config(
         retries={
-            'max_attempts': 3,
+            'max_attempts': 1,
             'mode': 'adaptive'  # Adaptive retry mode for intelligent throttling
         }
     )
@@ -226,7 +226,7 @@ def invoke_agent(prompt: str, session_id: Optional[str] = None) -> str:
     )
 
     # Retry logic for transient errors
-    max_retries = 3
+    max_retries = 1
     retryable_errors = ['ThrottlingException', 'InternalServerException', 'ServiceQuotaExceededException']
 
     for attempt in range(max_retries):
