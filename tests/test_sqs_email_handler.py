@@ -95,7 +95,7 @@ class TestLambdaHandler:
     })
     @patch('services.s3.s3_client')
     def test_lambda_handler_s3_error(self, mock_s3_client, sqs_event, mock_context):
-        """Test handler when S3 fetch fails."""
+        """Test handler when S3 fetch fails - message is still deleted."""
         # Mock S3 error
         from botocore.exceptions import ClientError
         mock_s3_client.exceptions.NoSuchKey = type('NoSuchKey', (Exception,), {})
@@ -104,16 +104,15 @@ class TestLambdaHandler:
         # Invoke handler
         result = sqs_email_handler.lambda_handler(sqs_event, mock_context)
 
-        # Should report batch item failure
-        assert len(result["batchItemFailures"]) == 1
-        assert result["batchItemFailures"][0]["itemIdentifier"] == "test-message-id-123"
+        # Should delete message even on error (no batch item failures)
+        assert len(result["batchItemFailures"]) == 0
 
     @patch.dict(os.environ, {
         'AGENT_RUNTIME_ARN': 'arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/test-agent-ABC123'
     })
     @patch('services.s3.s3_client')
     def test_lambda_handler_invalid_ses_notification(self, mock_s3_client, mock_context):
-        """Test handler with invalid SES notification."""
+        """Test handler with invalid SES notification - message is still deleted."""
         # Create invalid event
         invalid_event = {
             "Records": [{
@@ -125,8 +124,8 @@ class TestLambdaHandler:
         # Invoke handler
         result = sqs_email_handler.lambda_handler(invalid_event, mock_context)
 
-        # Should report batch item failure
-        assert len(result["batchItemFailures"]) == 1
+        # Should delete message even on error (no batch item failures)
+        assert len(result["batchItemFailures"]) == 0
 
     @patch.dict(os.environ, {
         'AGENT_RUNTIME_ARN': 'arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/test-agent-ABC123'
@@ -205,6 +204,83 @@ class TestLambdaHandler:
         assert result == {"batchItemFailures": []}
         assert mock_s3_client.get_object.call_count == 3
         assert mock_bedrock_client.invoke_agent_runtime.call_count == 3
+
+    @patch.dict(os.environ, {
+        'AGENT_RUNTIME_ARN': 'arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/test-agent-ABC123'
+    })
+    @patch('services.s3.s3_client')
+    @patch('integrations.agentcore_invocation.bedrock_client')
+    def test_lambda_handler_always_consumes_messages(self, mock_bedrock_client, mock_s3_client, mock_context):
+        """
+        CRITICAL TEST: Verify that messages are ALWAYS consumed (deleted)
+        regardless of any error that occurs. This prevents infinite loops
+        and message replay.
+        """
+        # Create event with 3 records that will fail in different ways
+        mixed_failure_event = {
+            "Records": [
+                {
+                    "messageId": "msg-invalid-json",
+                    "body": "not valid json"  # Will fail JSON parsing
+                },
+                {
+                    "messageId": "msg-missing-fields",
+                    "body": json.dumps({"invalid": "structure"})  # Will fail SES validation
+                },
+                {
+                    "messageId": "msg-s3-error",
+                    "body": json.dumps({
+                        "notificationType": "Received",
+                        "mail": {
+                            "commonHeaders": {"from": ["test@example.com"], "subject": "Test"},
+                            "timestamp": "2024-11-05T10:30:00.000Z"
+                        },
+                        "receipt": {
+                            "action": {
+                                "bucketName": "test-bucket",
+                                "objectKey": "test-key"
+                            }
+                        }
+                    })  # Will fail on S3 fetch
+                }
+            ]
+        }
+
+        # Mock S3 to fail
+        mock_s3_client.exceptions.NoSuchKey = type('NoSuchKey', (Exception,), {})
+        mock_s3_client.get_object.side_effect = mock_s3_client.exceptions.NoSuchKey()
+
+        # Invoke handler
+        result = sqs_email_handler.lambda_handler(mixed_failure_event, mock_context)
+
+        # CRITICAL ASSERTION: All messages must be consumed despite ALL failures
+        assert result == {"batchItemFailures": []}, \
+            "FAILED: Messages were not consumed! This will cause infinite retries!"
+        assert len(result["batchItemFailures"]) == 0, \
+            "FAILED: batchItemFailures must ALWAYS be empty to prevent message replay"
+
+    @patch.dict(os.environ, {
+        'AGENT_RUNTIME_ARN': 'arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/test-agent-ABC123'
+    })
+    def test_lambda_handler_no_retry_behavior(self, mock_context):
+        """
+        CRITICAL TEST: Verify that the Lambda does NOT implement any retry logic.
+        All retries should be handled by SQS, not by the Lambda function.
+        """
+        # Create event with invalid data
+        event = {
+            "Records": [{
+                "messageId": "test-msg",
+                "body": json.dumps({"invalid": "data"})
+            }]
+        }
+
+        # Invoke handler
+        result = sqs_email_handler.lambda_handler(event, mock_context)
+
+        # Verify no retries - function should return immediately
+        assert result == {"batchItemFailures": []}
+        # If there were retries, this test would take longer or the structure would be different
 
 
 if __name__ == '__main__':

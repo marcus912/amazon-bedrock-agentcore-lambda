@@ -125,40 +125,26 @@ class TestInvokeAgent:
             agentcore_invocation.invoke_agent(prompt="Test prompt")
 
     @patch('integrations.agentcore_invocation.bedrock_client')
-    @patch('time.sleep')  # Mock sleep to speed up test
-    def test_invoke_agent_throttling_with_retry(self, mock_sleep, mock_bedrock_client):
-        """Test retry logic for throttling errors."""
+    def test_invoke_agent_throttling_with_retry(self, mock_bedrock_client):
+        """Test throttling error raises immediately (no retries)."""
         from integrations import agentcore_invocation
 
-        # Setup - Fail twice, succeed on third attempt
-        mock_bedrock_client.invoke_agent_runtime.side_effect = [
-            ClientError(
-                {'Error': {'Code': 'ThrottlingException', 'Message': 'Throttled'}},
-                'InvokeAgentRuntime'
-            ),
-            ClientError(
-                {'Error': {'Code': 'ThrottlingException', 'Message': 'Throttled'}},
-                'InvokeAgentRuntime'
-            ),
-            {
-                'response': MagicMock(
-                    read=lambda: json.dumps({'output': 'Success after retry'}).encode('utf-8')
-                )
-            }
-        ]
+        # Setup - Always fail with throttling
+        mock_bedrock_client.invoke_agent_runtime.side_effect = ClientError(
+            {'Error': {'Code': 'ThrottlingException', 'Message': 'Throttled'}},
+            'InvokeAgentRuntime'
+        )
 
-        # Execute
-        result = agentcore_invocation.invoke_agent(prompt="Test prompt")
+        # Execute & Assert - Should fail immediately without retries
+        with pytest.raises(agentcore_invocation.ThrottlingException, match="Request throttled by Bedrock service"):
+            agentcore_invocation.invoke_agent(prompt="Test prompt")
 
-        # Assert
-        assert result == 'Success after retry'
-        assert mock_bedrock_client.invoke_agent_runtime.call_count == 3
-        assert mock_sleep.call_count == 2  # Sleep between retries
+        # Assert - Should only call once (no retries)
+        assert mock_bedrock_client.invoke_agent_runtime.call_count == 1
 
     @patch('integrations.agentcore_invocation.bedrock_client')
-    @patch('time.sleep')
-    def test_invoke_agent_throttling_max_retries_exceeded(self, mock_sleep, mock_bedrock_client):
-        """Test ThrottlingException when max retries exceeded."""
+    def test_invoke_agent_throttling_max_retries_exceeded(self, mock_bedrock_client):
+        """Test ThrottlingException fails immediately (no retries)."""
         from integrations import agentcore_invocation
 
         # Setup - Always fail
@@ -167,11 +153,11 @@ class TestInvokeAgent:
             'InvokeAgentRuntime'
         )
 
-        # Execute & Assert
-        with pytest.raises(agentcore_invocation.ThrottlingException, match="after 3 attempts"):
+        # Execute & Assert - Should fail immediately without retries
+        with pytest.raises(agentcore_invocation.ThrottlingException, match="Request throttled by Bedrock service"):
             agentcore_invocation.invoke_agent(prompt="Test prompt")
 
-        assert mock_bedrock_client.invoke_agent_runtime.call_count == 3
+        assert mock_bedrock_client.invoke_agent_runtime.call_count == 1
 
     @patch('integrations.agentcore_invocation.bedrock_client')
     def test_invoke_agent_generic_client_error(self, mock_bedrock_client):
@@ -221,6 +207,65 @@ class TestInvokeAgent:
 
         # Assert - Should fallback to raw bytes
         assert result == 'Not valid JSON'
+
+    @patch('integrations.agentcore_invocation.bedrock_client')
+    def test_invoke_agent_no_retry_on_error(self, mock_bedrock_client):
+        """
+        CRITICAL TEST: Verify that invoke_agent does NOT retry on errors.
+        All errors should fail immediately with a single API call.
+        """
+        from integrations import agentcore_invocation
+
+        # Setup - Always fail with a retryable error
+        mock_bedrock_client.invoke_agent_runtime.side_effect = ClientError(
+            {'Error': {'Code': 'InternalServerException', 'Message': 'Internal error'}},
+            'InvokeAgentRuntime'
+        )
+
+        # Execute & Assert - Should fail immediately
+        with pytest.raises(ClientError):
+            agentcore_invocation.invoke_agent(prompt="Test prompt")
+
+        # CRITICAL ASSERTION: Should only call once (NO RETRIES)
+        assert mock_bedrock_client.invoke_agent_runtime.call_count == 1, \
+            "FAILED: Agent invocation retried! This will cause infinite loops!"
+
+    @patch('integrations.agentcore_invocation.bedrock_client')
+    def test_invoke_agent_all_errors_fail_fast(self, mock_bedrock_client):
+        """
+        CRITICAL TEST: Verify all error types fail immediately without retries.
+        """
+        from integrations import agentcore_invocation
+
+        error_codes = [
+            'ThrottlingException',
+            'InternalServerException',
+            'ServiceQuotaExceededException',
+            'ValidationException',
+        ]
+
+        for error_code in error_codes:
+            # Reset mock
+            mock_bedrock_client.reset_mock()
+
+            # Setup error
+            if error_code == 'ThrottlingException':
+                expected_exception = agentcore_invocation.ThrottlingException
+            else:
+                expected_exception = ClientError
+
+            mock_bedrock_client.invoke_agent_runtime.side_effect = ClientError(
+                {'Error': {'Code': error_code, 'Message': f'{error_code} error'}},
+                'InvokeAgentRuntime'
+            )
+
+            # Execute & Assert
+            with pytest.raises((expected_exception, ClientError)):
+                agentcore_invocation.invoke_agent(prompt="Test prompt")
+
+            # CRITICAL: Only one call per error (no retries)
+            assert mock_bedrock_client.invoke_agent_runtime.call_count == 1, \
+                f"FAILED: {error_code} triggered retries! Expected 1 call, got {mock_bedrock_client.invoke_agent_runtime.call_count}"
 
 
 class TestGenerateSessionId:

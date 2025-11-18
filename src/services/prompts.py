@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Dict, Tuple
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import ClientError
 
 logger = logging.getLogger(__name__)
@@ -26,8 +27,19 @@ CACHE_TTL_SECONDS = int(os.environ.get('PROMPT_CACHE_TTL', '300'))
 # Module-level cache: {cache_key: (prompt_content, timestamp)}
 _prompt_cache: Dict[str, Tuple[str, float]] = {}
 
+# Configure S3 client with timeouts to prevent infinite hangs
+s3_config = Config(
+    retries={
+        'max_attempts': 0,  # 0 attempts = 1 total call, NO retries
+        'mode': 'standard'
+    },
+    connect_timeout=10,  # 10 seconds to establish connection
+    read_timeout=30      # 30 seconds max for reading prompts
+)
+
 # Initialize S3 client at module level (thread-safe, reused)
-s3_client = boto3.client('s3')
+s3_client = boto3.client('s3', config=s3_config)
+logger.info("Prompts S3 client initialized with timeouts: connect=10s, read=30s")
 
 # Configuration from environment variables
 PROMPT_BUCKET = os.environ.get('PROMPT_BUCKET')

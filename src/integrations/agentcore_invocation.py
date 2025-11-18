@@ -89,30 +89,36 @@ def _read_agent_runtime_arn() -> str:
 
 def _initialize_bedrock_client():
     """
-    Initialize boto3 Bedrock AgentCore client with retry configuration.
+    Initialize boto3 Bedrock AgentCore client with timeout configuration.
 
     Returns:
         boto3.client: Configured Bedrock AgentCore client
     """
-    # Configure retry strategy for transient failures
-    retry_config = Config(
+    # Configure with NO retries and strict timeouts to prevent infinite loops
+    # Lambda timeout will handle failure scenarios
+    client_config = Config(
         retries={
-            'max_attempts': 1,
-            'mode': 'adaptive'  # Adaptive retry mode for intelligent throttling
-        }
+            'max_attempts': 0,  # 0 attempts = 1 total call, NO retries
+            'mode': 'standard'
+        },
+        connect_timeout=10,  # 10 seconds to establish connection
+        read_timeout=120     # 120 seconds max for reading response (prevents infinite hang)
     )
 
     # Get region from environment or use default
     region = os.environ.get('AWS_REGION', os.environ.get('AWS_DEFAULT_REGION', 'us-west-2'))
 
-    # Create Bedrock AgentCore client (NOT bedrock-agent-runtime)
+    # Create Bedrock AgentCore client
     client = boto3.client(
         'bedrock-agentcore',
         region_name=region,
-        config=retry_config
+        config=client_config
     )
 
-    logger.info(f"Bedrock AgentCore client initialized (region: {region})")
+    logger.info(
+        f"Bedrock AgentCore client initialized: region={region}, "
+        f"connect_timeout=10s, read_timeout=120s, max_attempts=0 (no retries)"
+    )
     return client
 
 
@@ -225,90 +231,66 @@ def invoke_agent(prompt: str, session_id: Optional[str] = None) -> str:
         f"agent_arn={AGENT_RUNTIME_ARN[:50]}..."
     )
 
-    # Retry logic for transient errors
-    max_retries = 1
-    retryable_errors = ['ThrottlingException', 'InternalServerException', 'ServiceQuotaExceededException']
+    try:
+        # Call Bedrock AgentCore API (NO RETRIES - fail fast)
+        response = bedrock_client.invoke_agent_runtime(
+            agentRuntimeArn=AGENT_RUNTIME_ARN,  # Use full ARN
+            runtimeSessionId=session_id,
+            payload=payload,
+            qualifier="DEFAULT"  # Optional qualifier
+        )
 
-    for attempt in range(max_retries):
+        # Parse AgentCore response
+        # WARNING: This read() can potentially hang if response stream doesn't complete
+        # The boto3 client timeout should prevent infinite hangs
+        response_body = response['response'].read()
+
+        # Handle empty response
+        if not response_body:
+            logger.warning("Agent returned empty response")
+            return ""
+
+        # Parse JSON response
         try:
-            # Call Bedrock AgentCore API
-            response = bedrock_client.invoke_agent_runtime(
-                agentRuntimeArn=AGENT_RUNTIME_ARN,  # Use full ARN
-                runtimeSessionId=session_id,
-                payload=payload,
-                qualifier="DEFAULT"  # Optional qualifier
+            response_data = json.loads(response_body)
+        except json.JSONDecodeError as json_err:
+            logger.error(f"Failed to parse JSON response: {json_err}, body: {response_body[:200]}")
+            # Return raw response if JSON parsing fails
+            return response_body.decode('utf-8') if isinstance(response_body, bytes) else str(response_body)
+
+        # Extract the agent output from response
+        agent_output = response_data.get('response', response_data.get('output', str(response_data)))
+
+        execution_time = time.time() - start_time
+        logger.info(
+            f"Agent invocation succeeded: "
+            f"response_length={len(agent_output)}, "
+            f"execution_time={execution_time:.2f}s"
+        )
+
+        return agent_output
+
+    except ClientError as e:
+        error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+        error_message = e.response.get('Error', {}).get('Message', str(e))
+
+        # Map AWS errors to domain-specific exceptions
+        if error_code == 'ResourceNotFoundException':
+            logger.error(
+                f"Agent not found: agent_arn={AGENT_RUNTIME_ARN}, "
+                f"error={error_message}"
             )
-
-            # Parse AgentCore response
-            response_body = response['response'].read()
-
-            # Handle empty response
-            if not response_body:
-                logger.warning("Agent returned empty response")
-                return ""
-
-            # Parse JSON response
-            try:
-                response_data = json.loads(response_body)
-            except json.JSONDecodeError as json_err:
-                logger.error(f"Failed to parse JSON response: {json_err}, body: {response_body[:200]}")
-                # Return raw response if JSON parsing fails
-                return response_body.decode('utf-8') if isinstance(response_body, bytes) else str(response_body)
-
-            # Extract the agent output from response
-            agent_output = response_data.get('response', response_data.get('output', str(response_data)))
-
-            execution_time = time.time() - start_time
-            logger.info(
-                f"Agent invocation succeeded: "
-                f"response_length={len(agent_output)}, "
-                f"execution_time={execution_time:.2f}s, "
-                f"attempts={attempt + 1}"
+            raise AgentNotFoundException(
+                f"Agent not found: {AGENT_RUNTIME_ARN}. "
+                f"Verify the agent exists and is active. Error: {error_message}"
             )
-
-            return agent_output
-
-        except ClientError as e:
-            error_code = e.response.get('Error', {}).get('Code', 'Unknown')
-            error_message = e.response.get('Error', {}).get('Message', str(e))
-
-            # Map AWS errors to domain-specific exceptions
-            if error_code == 'ResourceNotFoundException':
-                logger.error(
-                    f"Agent not found: agent_arn={AGENT_RUNTIME_ARN}, "
-                    f"error={error_message}"
-                )
-                raise AgentNotFoundException(
-                    f"Agent not found: {AGENT_RUNTIME_ARN}. "
-                    f"Verify the agent exists and is active. Error: {error_message}"
-                )
-            elif error_code in retryable_errors:
-                if attempt < max_retries - 1:
-                    # Exponential backoff: 2^attempt * 100ms
-                    wait_time = (2 ** attempt) * 0.1
-                    logger.warning(
-                        f"Retryable error encountered: error_code={error_code}, "
-                        f"attempt={attempt + 1}/{max_retries}, "
-                        f"retry_after={wait_time:.2f}s, "
-                        f"agent_arn={AGENT_RUNTIME_ARN[:50]}..."
-                    )
-                    time.sleep(wait_time)
-                    continue  # Retry
-                else:
-                    # Last attempt failed
-                    logger.error(
-                        f"Max retries exceeded: error_code={error_code}, "
-                        f"attempts={max_retries}, "
-                        f"agent_arn={AGENT_RUNTIME_ARN[:50]}..."
-                    )
-                    raise ThrottlingException(
-                        f"Request throttled by Bedrock service after {max_retries} attempts. "
-                        f"Retry after a longer delay. Error: {error_message}"
-                    )
-            else:
-                logger.error(
-                    f"Agent invocation failed: error_code={error_code}, "
-                    f"error_message={error_message}, "
-                    f"agent_arn={AGENT_RUNTIME_ARN[:50]}..."
-                )
-                raise
+        elif error_code == 'ThrottlingException':
+            logger.error(f"Request throttled: {error_message}")
+            raise ThrottlingException(f"Request throttled by Bedrock service: {error_message}")
+        else:
+            logger.error(
+                f"Agent invocation failed: error_code={error_code}, "
+                f"error_message={error_message}, "
+                f"agent_arn={AGENT_RUNTIME_ARN[:50]}..."
+            )
+            raise

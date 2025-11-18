@@ -8,12 +8,24 @@ import logging
 from typing import Optional
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import ClientError
 
 logger = logging.getLogger(__name__)
 
+# Configure S3 client with timeouts to prevent infinite hangs
+s3_config = Config(
+    retries={
+        'max_attempts': 0,  # 0 attempts = 1 total call, NO retries
+        'mode': 'standard'
+    },
+    connect_timeout=10,  # 10 seconds to establish connection
+    read_timeout=60      # 60 seconds max for reading response
+)
+
 # Initialize S3 client at module level (thread-safe, reused across invocations)
-s3_client = boto3.client('s3')
+s3_client = boto3.client('s3', config=s3_config)
+logger.info("S3 client initialized with timeouts: connect=10s, read=60s")
 
 
 def fetch_email_from_s3(bucket: str, key: str) -> bytes:

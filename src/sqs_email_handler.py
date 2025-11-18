@@ -37,8 +37,6 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     logger.info("Email Body Extractor - Started")
     logger.info("=" * 70)
 
-    batch_item_failures = []
-
     for record in event.get('Records', []):
         message_id = record.get('messageId', 'UNKNOWN')
 
@@ -189,20 +187,26 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 logger.info(f"✓ Successfully processed message {message_id} (agent invocation succeeded)")
             else:
                 logger.warning(
-                    f"⚠ Processed message {message_id} with DEGRADED service "
+                    f"⚠ Processed message {message_id} with ERRORS "
                     f"(email logged but agent invocation failed - see errors above)"
                 )
 
         except Exception as e:
-            logger.error(f"✗ Error processing message {message_id}: {str(e)}",
-                         exc_info=True)
-            batch_item_failures.append({"itemIdentifier": message_id})
+            logger.error(
+                f"✗ CRITICAL ERROR processing message {message_id}: {str(e)}",
+                exc_info=True
+            )
+            logger.warning(
+                f"⚠ Message {message_id} will be DELETED despite error "
+                f"(no retry - error logged for manual review)"
+            )
 
     logger.info("=" * 70)
     logger.info(f"Batch processing complete")
     logger.info("=" * 70)
 
-    return {"batchItemFailures": batch_item_failures}
+    # Always delete all messages (empty failures list) to prevent infinite retries
+    return {"batchItemFailures": []}
 
 
 def log_email_processing(
@@ -272,7 +276,7 @@ def log_email_processing(
         logger.info("Email processing completed successfully")
         logger.info("NOTE: GitHub issue creation is handled by the agent's MCP tools")
     else:
-        logger.info("Email processing completed with DEGRADED service")
+        logger.info("Email processing completed WITH ERRORS")
         logger.info("WARNING: Agent invocation failed - GitHub issue may NOT have been created")
         logger.info("MANUAL ACTION: Review error logs above and create GitHub issue manually if needed")
 
