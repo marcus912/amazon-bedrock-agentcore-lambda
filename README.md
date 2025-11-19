@@ -5,10 +5,11 @@ AWS Lambda functions for Amazon Bedrock AgentCore workflows, deployed with AWS S
 ## Features
 
 - **SQS Email Handler**: Process emails from SES via SQS, invoke Bedrock agent to create GitHub issues
-- Three-layer architecture (handlers → services → integrations)
+- Four-layer architecture (handler → domain → services → integrations)
+- Type-safe domain models with dataclasses
 - Multi-environment support (dev, staging, prod)
 - X-Ray tracing enabled
-- Comprehensive error handling and retry logic
+- Fail-fast error handling (no retries to prevent infinite loops)
 
 ## System Flow
 
@@ -101,21 +102,25 @@ AWS Lambda functions for Amazon Bedrock AgentCore workflows, deployed with AWS S
 │   ├── deploy.sh             # Deployment script
 │   └── update-prompts.sh     # Upload prompts to S3 (optional)
 ├── src/
-│   ├── integrations/         # AWS service wrappers (Layer 3)
-│   │   └── agentcore_invocation.py
-│   ├── services/             # Utilities (Layer 2)
-│   │   ├── email.py
-│   │   ├── s3.py
+│   ├── sqs_email_handler.py  # Lambda handler (thin orchestration, 92 lines)
+│   ├── domain/               # Business logic
+│   │   ├── models.py         # Type-safe dataclasses (EmailMetadata, etc.)
+│   │   └── email_processor.py # Email processing pipeline
+│   ├── services/             # Utilities
+│   │   ├── email.py          # Email parsing
+│   │   ├── s3.py             # S3 operations
 │   │   └── prompts.py        # Prompt loader (filesystem + S3)
+│   ├── integrations/         # External APIs
+│   │   └── agentcore_invocation.py # Bedrock agent client
 │   ├── prompts/              # AI agent prompts (packaged with Lambda)
 │   │   ├── github_issue.txt
 │   │   └── README.md
-│   ├── sqs_email_handler.py  # Lambda handler (Layer 1)
 │   └── requirements.txt
 ├── tests/
-│   ├── integrations/
-│   ├── services/
-│   └── events/
+│   ├── test_domain_models.py
+│   ├── test_sqs_email_handler.py
+│   ├── test_integration_agentcore_invocation.py
+│   └── test_service_*.py
 ├── template.yaml             # SAM infrastructure
 └── samconfig.toml           # Deployment config
 ```
@@ -209,20 +214,26 @@ sam local invoke SQSEmailHandlerFunction -e tests/events/sqs-event.json
 
 **Purpose**: Process SES emails from SQS, invoke Bedrock agent to analyze email and create GitHub issues using agent's MCP tools.
 
+**Architecture**:
+- **Handler** (`sqs_email_handler.py`): Thin orchestration layer (92 lines)
+- **Domain** (`domain/email_processor.py`): All business logic
+- **Models** (`domain/models.py`): Type-safe data structures
+
 **Flow**:
 1. SQS triggers Lambda with SES notification
-2. Lambda fetches email from S3
-3. Parses MIME content (text/HTML body, attachments)
-4. Invokes Bedrock agent with email content
-5. Agent queries knowledge base for bug report template
-6. Agent creates GitHub issue via MCP tools
-7. Lambda logs agent response with issue URL
+2. Handler delegates to `EmailProcessor.process_ses_record()`
+3. Processor fetches email from S3
+4. Parses MIME content (text/HTML body, attachments)
+5. Invokes Bedrock agent with email content
+6. Agent queries knowledge base for bug report template
+7. Agent creates GitHub issue via MCP tools
+8. Returns `ProcessingResult` (success/failure)
 
-**Configuration** (`src/sqs_email_handler.py:130-323`):
-- Default repository: `bugs`
+**Configuration**:
+- Default repository: `bugs` (configurable in `EmailProcessor`)
 - Agent validates template exists in knowledge base
 - Agent validates email has required fields
-- Error handling for missing template or incomplete emails
+- Fail-fast error handling (no retries)
 
 **Monitor**:
 ```bash

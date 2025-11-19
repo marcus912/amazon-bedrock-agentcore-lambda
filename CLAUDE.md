@@ -1,11 +1,12 @@
 # amazon-bedrock-agentcore-lambda Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2025-11-12
+Auto-generated from all feature plans. Last updated: 2025-11-19
 
 ## Active Technologies
 
 - Python 3.13 (AWS Lambda runtime) + boto3>=1.34.0 (Bedrock Agent Runtime support), botocore>=1.34.0
-- Three-layer architecture: handlers → services → integrations
+- Four-layer architecture: handler → domain → services → integrations
+- Type-safe domain models using dataclasses
 - AWS SAM for deployment and infrastructure
 - uv for package management
 
@@ -13,32 +14,41 @@ Auto-generated from all feature plans. Last updated: 2025-11-12
 
 ```text
 src/
-├── integrations/              # Layer 3: AWS service integrations
-│   └── agentcore_invocation.py
-├── services/                  # Layer 2: Utility functions
+├── sqs_email_handler.py       # Thin orchestration layer (92 lines)
+├── domain/                    # NEW: Business logic layer
+│   ├── models.py              # Type-safe dataclasses
+│   └── email_processor.py     # Email processing pipeline
+├── services/                  # Utilities
 │   ├── email.py
-│   └── s3.py
-├── sqs_email_handler.py       # Layer 1: Lambda handlers
+│   ├── s3.py
+│   └── prompts.py
+├── integrations/              # External APIs
+│   └── agentcore_invocation.py
 └── requirements.txt
 tests/
-├── integrations/
-├── services/
-└── events/
+├── test_domain_models.py
+├── test_sqs_email_handler.py
+├── test_integration_agentcore_invocation.py
+└── test_service_*.py
 ```
 
 ## Architecture Principles
 
-**Three-Layer Pattern**:
-1. **Handlers** (Layer 1): Business logic, Lambda entry points
-2. **Services** (Layer 2): Reusable utilities (email, S3)
-3. **Integrations** (Layer 3): AWS service wrappers (Bedrock)
+**Four-Layer Pattern**:
+1. **Handler** (Orchestration): Thin Lambda entry point, just coordinates
+2. **Domain** (Business Logic): Core email processing, type-safe models
+3. **Services** (Utilities): Reusable functions (email, S3, prompts)
+4. **Integrations** (External APIs): AWS service wrappers (Bedrock)
 
 **Key Decisions**:
+- Type-safe domain models with dataclasses (EmailMetadata, EmailContent, ProcessingResult)
 - Module-level initialization for boto3 clients (thread-safe, reused)
 - Environment variables read at import time
 - Custom exceptions for error handling
 - Structured logging throughout
-- Exponential backoff for transient failures
+- **Fail-fast error handling (NO retries to prevent infinite loops)**
+- Strict timeouts on all boto3 clients (max_attempts=0, connect/read timeouts)
+- Always consume SQS messages (return empty batchItemFailures)
 
 ## Commands
 
@@ -78,19 +88,36 @@ Python 3.13: Follow PEP 8 and type hints where beneficial
 **Purpose**: Shared Python module for invoking Bedrock AgentCore agents from Lambda handlers
 
 **Components**:
+- `src/domain/email_processor.py`: Email processing pipeline
+  - `EmailProcessor.process_ses_record()`: Main business logic
+  - Orchestrates: parse → fetch → process → return result
+  - Returns explicit `ProcessingResult` (success/failure)
+- `src/domain/models.py`: Type-safe data structures
+  - `EmailMetadata`: Structured email metadata (from, subject, S3 location, etc.)
+  - `EmailContent`: Parsed email content (text, HTML, attachments)
+  - `ProcessingResult`: Explicit success/failure result
+- `src/sqs_email_handler.py`: Lambda handler
+  - Thin orchestration layer (92 lines)
+  - Delegates to EmailProcessor
+  - Always returns empty batchItemFailures (no retries)
 - `src/integrations/agentcore_invocation.py`: Core agent invocation module
   - Uses `boto3.client('bedrock-agentcore')` with `invoke_agent_runtime()` method
   - `invoke_agent(prompt, session_id=None)`: Main API
   - Custom exceptions: ConfigurationError, AgentNotFoundException, ThrottlingException, ValidationException
   - Automatic session ID generation (33+ chars, UUID4)
-  - Retry logic with exponential backoff (3 attempts)
+  - **NO retries** (max_attempts=0, fail fast)
+  - Strict timeouts (10s connect, 120s read)
   - JSON response parsing with graceful fallback
 - `src/services/email.py`: Email parsing utilities
   - `extract_email_body(email_content)`: Extract plain text from emails
   - `parse_email_headers(email_content)`: Parse email headers
 - `src/services/s3.py`: S3 operations
   - `fetch_email_from_s3(bucket, key)`: Fetch email from S3
+  - Strict timeouts (10s connect, 60s read, no retries)
   - `upload_processed_result(bucket, key, content)`: Upload results
+- `src/services/prompts.py`: Prompt management
+  - Load prompts from filesystem or S3 with TTL caching
+  - Strict timeouts (10s connect, 30s read, no retries)
 
 **Configuration**:
 - Environment variable: `AGENT_RUNTIME_ARN` (required)
@@ -112,15 +139,6 @@ summary = agentcore_invocation.invoke_agent(
     session_id=None
 )
 ```
-
-## Recent Changes
-
-- 2025-11-12: Completed 001-shared-agent-invocation feature
-  - Implemented three-layer architecture
-  - Added Bedrock Agent invocation module with retry logic
-  - Created email and S3 service utilities
-  - Refactored SQS email handler to use new architecture
-  - Updated SAM template for multi-environment configuration
 
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->

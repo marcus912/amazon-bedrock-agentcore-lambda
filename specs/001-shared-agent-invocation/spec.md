@@ -1,10 +1,9 @@
 # Feature Specification: Shared AgentCore Invocation Module
 
+> **Note**: For current implementation details, see [README.md](../../../README.md) and [CLAUDE.md](../../../CLAUDE.md).
+
 **Feature Branch**: `001-shared-agent-invocation`
-**Created**: 2025-11-11
-**Updated**: 2025-11-11 (Architecture revised to shared module)
-**Status**: Draft - Architecture Updated
-**Input**: User description: "Create a shared Python module for invoking Bedrock AgentCore agents. Multiple Lambda handlers (like the existing SQS email handler) will import and use this shared module by passing prompt text and session parameters. The agent ARN should be configurable via environment variables (AGENT_ARN, AGENT_ALIAS_ARN). Include SQS test event for testing the integration."
+**Status**: Completed
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -30,28 +29,28 @@ Operations teams need to configure which Bedrock agent is invoked by setting env
 
 **Why this priority**: Configuration management is critical for multi-environment deployments and changing agents without code redeployment.
 
-**Independent Test**: Deploy with AGENT_ARN set to a test agent in dev environment, verify invocations use that agent. Change environment variable and redeploy, verify new agent is used.
+**Independent Test**: Deploy with AGENT_RUNTIME_ARN set to a test agent in dev environment, verify invocations use that agent. Change environment variable and redeploy, verify new agent is used.
 
 **Acceptance Scenarios**:
 
-1. **Given** AGENT_ARN and AGENT_ALIAS_ARN are set in Lambda environment variables, **When** the shared module is imported, **Then** it reads these values and uses them for all agent invocations
-2. **Given** dev environment has AGENT_ARN=arn:aws:bedrock:us-west-2:123456789012:agent/TESTDEV123 and prod has AGENT_ARN=arn:aws:bedrock:us-west-2:123456789012:agent/PRODABC789, **When** the same code is deployed to both environments, **Then** each environment invokes its respective agent
-3. **Given** AGENT_ARN or AGENT_ALIAS_ARN environment variables are missing, **When** the module is imported, **Then** it raises a clear configuration error at startup
+1. **Given** AGENT_RUNTIME_ARN is set in Lambda environment variables, **When** the shared module is imported, **Then** it reads this value and uses it for all agent invocations
+2. **Given** dev environment has AGENT_RUNTIME_ARN=arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/TESTDEV123 and prod has AGENT_RUNTIME_ARN=arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/PRODABC789, **When** the same code is deployed to both environments, **Then** each environment invokes its respective agent
+3. **Given** AGENT_RUNTIME_ARN environment variable is missing, **When** the module is imported, **Then** it raises a clear configuration error at startup
 
 ---
 
 ### User Story 3 - Error Handling for Callers (Priority: P2)
 
-Handler developers need clear error messages when agent invocations fail, so they can handle errors gracefully in their Lambda handler logic (retry, log, return error to caller).
+Handler developers need clear error messages when agent invocations fail, so they can handle errors gracefully in their Lambda handler logic (log error, return failure result).
 
-**Why this priority**: Robust error handling ensures handlers can implement appropriate error recovery strategies without the shared module obscuring failure details.
+**Why this priority**: Fail-fast error handling with clear messages ensures handlers can log errors for manual review without infinite retries.
 
-**Independent Test**: Call `invoke_agent()` with invalid prompt or during Bedrock service issues, verify appropriate exception is raised with actionable error message.
+**Independent Test**: Call `invoke_agent()` with invalid prompt or during Bedrock service issues, verify appropriate exception is raised with actionable error message and no retries occur.
 
 **Acceptance Scenarios**:
 
-1. **Given** the agent is unavailable (deleted or region issue), **When** a handler calls `invoke_agent()`, **Then** an `AgentNotFoundException` is raised with the agent ARN in the error message
-2. **Given** Bedrock throttles requests, **When** a handler calls `invoke_agent()`, **Then** the module retries with exponential backoff (up to 3 attempts) and either succeeds or raises `ThrottlingException` with retry details
+1. **Given** the agent is unavailable (deleted or region issue), **When** a handler calls `invoke_agent()`, **Then** an `AgentNotFoundException` is raised immediately with the agent runtime ARN in the error message
+2. **Given** Bedrock throttles requests, **When** a handler calls `invoke_agent()`, **Then** the module fails immediately and raises `ThrottlingException` (no retries)
 3. **Given** the prompt exceeds Bedrock's input limit, **When** a handler calls `invoke_agent()`, **Then** a `ValidationException` is raised immediately with the size limit and actual size
 
 ---
@@ -86,13 +85,13 @@ Developers need SQS test events to verify the shared module integrates correctly
 ### Functional Requirements
 
 - **FR-001**: Module MUST provide an `invoke_agent(prompt, session_id=None, **kwargs)` function that accepts prompt text and optional session ID
-- **FR-002**: Module MUST read AGENT_ARN and AGENT_ALIAS_ARN from os.environ at import time and use these for all invocations
-- **FR-003**: Module MUST raise ConfigurationError if AGENT_ARN or AGENT_ALIAS_ARN environment variables are not set
+- **FR-002**: Module MUST read AGENT_RUNTIME_ARN from os.environ at import time and use for all invocations
+- **FR-003**: Module MUST raise ConfigurationError if AGENT_RUNTIME_ARN environment variable is not set
 - **FR-004**: Module MUST call the Bedrock Agent Runtime API `invoke_agent` operation with the configured agent ARN
 - **FR-005**: Module MUST collect all EventStream chunks from Bedrock and return the complete agent response as a string
 - **FR-006**: Module MUST handle session context by passing session_id to Bedrock if provided, or allowing Bedrock to generate one
-- **FR-007**: Module MUST implement retry logic with exponential backoff for transient errors (ThrottlingException, InternalServerException) up to 3 attempts
-- **FR-008**: Module MUST NOT retry permanent errors (ResourceNotFoundException, ValidationException) and raise immediately
+- **FR-007**: Module MUST NOT implement retry logic (max_attempts=0) to prevent infinite loops - fail fast on all errors
+- **FR-008**: Module MUST use strict timeouts (10s connect, 120s read) on all boto3 clients
 - **FR-009**: Module MUST raise domain-specific exceptions (AgentNotFoundException, ThrottlingException, ValidationException) with actionable error messages
 - **FR-010**: Module MUST sanitize sensitive data from error messages (only include agent ARN, not credentials or session tokens)
 - **FR-011**: Module MUST be importable from any Lambda handler (no side effects on import except environment variable reading)
@@ -103,9 +102,9 @@ Developers need SQS test events to verify the shared module integrates correctly
 
 ### Key Entities
 
-- **AgentInvocationRequest**: Prompt text (string), session ID (optional UUID v4), agent ARN (from environment), agent alias ARN (from environment), additional kwargs (timeout, max_retries)
+- **AgentInvocationRequest**: Prompt text (string), session ID (optional UUID v4), agent runtime ARN (from environment)
 - **AgentInvocationResponse**: Agent output text (string), session ID (returned by Bedrock), execution time (milliseconds), token usage (if available from Bedrock)
-- **AgentInvocationError**: Error type (configuration, validation, throttling, not found, internal), error message (actionable), agent ARN (for context), retry attempts (if applicable)
+- **AgentInvocationError**: Error type (configuration, validation, throttling, not found, internal), error message (actionable), agent runtime ARN (for context)
 
 ## Success Criteria *(mandatory)*
 

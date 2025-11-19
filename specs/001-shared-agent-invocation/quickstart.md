@@ -1,8 +1,9 @@
-# Quickstart: Shared AgentCore Invocation Lambda
+# Quickstart Guide
 
-**Feature**: 001-shared-agent-invocation
-**Audience**: Developers implementing this feature
-**Estimated Time**: 2-3 hours (following test-first development)
+> **Note**: For current development workflow, see:
+> - [README.md](../../../README.md) - Architecture overview
+> - [DEPLOYMENT.md](../../../DEPLOYMENT.md) - Deployment instructions
+> - [LOCAL_TESTING.md](../../../LOCAL_TESTING.md) - Testing guide
 
 ## Prerequisites
 

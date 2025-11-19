@@ -1,31 +1,40 @@
 # Implementation Plan: Shared AgentCore Invocation Module
 
-**Branch**: `001-shared-agent-invocation` | **Date**: 2025-11-11 | **Spec**: [spec.md](spec.md)
-**Input**: Feature specification from `/specs/001-shared-agent-invocation/spec.md`
+> **Note**: For current architecture, see [README.md](../../../README.md) and [CLAUDE.md](../../../CLAUDE.md).
 
-## Summary
+**Status**: Completed
 
-Create a three-layer architecture for Lambda handlers that keeps handler code clean:
+## Architecture
 
-1. **AWS Integrations** (`src/integrations/`): Reusable infrastructure code for invoking Amazon Bedrock AgentCore agents. The `agentcore_invocation.py` module provides a simple `invoke_agent(prompt, session_id)` function interface, uses `boto3.client('bedrock-agentcore').invoke_agent_runtime()` API, reads agent runtime ARN from environment variable (AGENT_RUNTIME_ARN), implements retry logic for transient failures, and raises domain-specific exceptions for error handling.
+Four-layer architecture for Lambda handlers:
 
-2. **Services Layer** (`src/services/`): Utility functions for handler operations including email processing (`email.py` with `extract_email_body()`) and S3 operations (`s3.py` with `fetch_email_from_s3()`). Services are reusable across multiple handlers.
+1. **Handler** (`src/sqs_email_handler.py`): Thin orchestration layer (92 lines) that coordinates processing
 
-3. **Handlers** (`src/*.py`): Clean business logic that imports services and integrations. Handlers delegate utility operations to services and AWS infrastructure concerns to integrations.
+2. **Domain** (`src/domain/`): Business logic and type-safe models
+   - `email_processor.py`: Email processing pipeline
+   - `models.py`: Data structures (EmailMetadata, EmailContent, ProcessingResult)
+
+3. **Services** (`src/services/`): Reusable utility functions
+   - `email.py`: Email parsing
+   - `s3.py`: S3 operations
+   - `prompts.py`: Prompt management
+
+4. **Integrations** (`src/integrations/`): AWS service wrappers
+   - `agentcore_invocation.py`: Bedrock agent invocation (no retries, strict timeouts)
 
 Multiple handlers (like the existing SQS email handler) will import both services and integrations to maintain clean, focused handler code without duplicating Bedrock integration logic or utility functions.
 
 ## Technical Context
 
-**Language/Version**: Python 3.13 (consistent with existing Lambda handlers)
-**Primary Dependencies**: boto3 ≥1.34.0 (bedrock-agentcore client), botocore (AWS service definitions), managed by uv
-**Storage**: N/A (stateless modules, no persistence)
-**Testing**: pytest with pytest-mock for unit tests, pytest-cov for coverage (pyproject.toml configured)
+**Language/Version**: Python 3.13
+**Primary Dependencies**: boto3 ≥1.34.0, botocore (AWS service definitions), managed by uv
+**Storage**: N/A (stateless, no persistence)
+**Testing**: pytest with pytest-mock, pytest-cov for coverage
 **Target Platform**: AWS Lambda (Python 3.13 runtime) deployed via SAM
-**Project Type**: Shared modules (src/integrations/), services layer (src/services/), imported by Lambda handlers
-**Performance Goals**: 95% of invocations < 30s, support 100+ concurrent calls, thread-safe design
-**Constraints**: No side effects on import (except env var reading), 80%+ test coverage, structured logging
-**Scale/Scope**: Three-layer architecture with AWS integrations (agentcore_invocation.py), services (email.py, s3.py), and handlers
+**Project Type**: Four-layer architecture with domain models
+**Performance Goals**: Fail-fast error handling, no retries, strict timeouts
+**Constraints**: No retries (max_attempts=0), strict timeouts, 80%+ test coverage
+**Scale/Scope**: Four-layer architecture - Handler → Domain → Services → Integrations
 
 ## Constitution Check
 
@@ -69,14 +78,14 @@ Coverage gate: ≥80% required.
 ### Performance & Reliability Check
 
 **Status**: PASS
-- ✅ Latency: Target 30s timeout for Bedrock invocations
-- ✅ Retry logic: Exponential backoff for throttling (3 attempts max)
-- ✅ Thread-safe: boto3 client initialized at module level (thread-safe)
-- ✅ Validation: Prompt and session_id validated before Bedrock call
-- ✅ Configuration: Env vars read at import, ConfigurationError if missing
-- ✅ Idempotency: Session IDs enable conversation context, Bedrock manages state
+- ✅ Fail-fast: No retries (max_attempts=0) to prevent infinite loops
+- ✅ Strict timeouts: 10s connect, 120s read timeout on Bedrock client
+- ✅ Thread-safe: boto3 client initialized at module level
+- ✅ SQS message handling: Always delete messages (empty batchItemFailures)
+- ✅ Type safety: Domain models with dataclasses
+- ✅ Configuration: Env vars read at import
 
-**GATE RESULT**: ✅ ALL CHECKS PASS (with Function-First architecture modification justified)
+**GATE RESULT**: ✅ ALL CHECKS PASS
 
 ## Project Structure
 
