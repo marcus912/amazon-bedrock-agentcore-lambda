@@ -11,24 +11,28 @@ Email Content:
 {body}
 
 **INSTRUCTIONS**:
-1. FIRST: Query your knowledge base for "github-bug-issue-template" to get the required structure and fields
-   - Identify what fields are required (e.g., steps to reproduce, expected behavior, actual behavior, environment details, etc.)
-   - If the template is not found in your knowledge base, respond with an error message indicating the template is missing
-2. Extract the corresponding information from the bug report email to populate those required fields
-3. Validate that the email contains sufficient information:
-   - If critical required fields are missing from the email, respond with an error message listing which fields could not be extracted
-   - Include what information was found and what is missing
-4. Format the GitHub issue body according to the template structure you retrieved
-5. Apply standard labels and categories as defined in your knowledge base
-6. Use your GitHub MCP tools to create the issue in the "{repository}" repository
-7. After creating the issue, respond with:
+1. Query your knowledge base for "github-bug-issue-guide" to get the complete guidelines
+   - This guide contains the issue template structure, required fields, validation checklist, and AI agent instructions
+   - Also reference "Linksys SKUs.docx" to validate product model numbers
+   - If the guide is not found, respond with an error message
+
+2. Extract information from the email to populate required fields:
+   - Bug description
+   - Steps to reproduce
+   - Product name/model (validate against knowledge base)
+   - Firmware version
+   - Bug category (Firmware or UI)
+   - Expected vs actual behavior
+
+3. Validate completeness:
+   - If critical fields are missing, respond with an error listing what's missing and what was found
+   - Ensure product SKU is valid by checking knowledge base
+
+4. Follow the guide to create the GitHub issue
+
+5. After creating the issue, respond with:
    - Confirmation that the issue was created
    - The GitHub issue URL
    - A brief summary of the issue
-
-**KNOWLEDGE BASE LOOKUP**:
-- Search term: "github-bug-issue-template"
-- This template defines the structure, required fields, and formatting guidelines
-- Reference examples of well-formatted GitHub issues from your knowledge base
 
 Please create the GitHub issue now using your MCP tools and confirm the result.
