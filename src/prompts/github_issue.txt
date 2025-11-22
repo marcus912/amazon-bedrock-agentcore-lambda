@@ -11,7 +11,7 @@ Email Content:
 {body}
 
 **INSTRUCTIONS**:
-1. Query your knowledge base for "github-bug-issue-guide" to get the complete guidelines
+1. Query your knowledge base for github bug issue guide to get the complete guidelines
    - This guide contains the issue template structure, required fields, validation checklist, and AI agent instructions
    - Also reference "Linksys SKUs.docx" to validate product model numbers
    - If the guide is not found, respond with an error message
