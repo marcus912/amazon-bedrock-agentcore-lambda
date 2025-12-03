@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 # Configure S3 client with timeouts to prevent infinite hangs
 s3_config = Config(
     retries={
-        'max_attempts': 0,  # 0 attempts = 1 total call, NO retries
+        'max_attempts': 1,  # 1 attempt total (no retries)
         'mode': 'standard'
     },
     connect_timeout=10,  # 10 seconds to establish connection
@@ -25,7 +25,7 @@ s3_config = Config(
 
 # Initialize S3 client at module level (thread-safe, reused across invocations)
 s3_client = boto3.client('s3', config=s3_config)
-logger.info("S3 client initialized with timeouts: connect=10s, read=60s")
+logger.info("S3 client initialized with timeouts: connect=10s, read=60s, max_attempts=1")
 
 
 def fetch_email_from_s3(bucket: str, key: str) -> bytes:

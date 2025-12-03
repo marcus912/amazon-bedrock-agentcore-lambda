@@ -30,7 +30,7 @@ _prompt_cache: Dict[str, Tuple[str, float]] = {}
 # Configure S3 client with timeouts to prevent infinite hangs
 s3_config = Config(
     retries={
-        'max_attempts': 0,  # 0 attempts = 1 total call, NO retries
+        'max_attempts': 1,  # 1 attempt total (no retries)
         'mode': 'standard'
     },
     connect_timeout=10,  # 10 seconds to establish connection
@@ -39,7 +39,7 @@ s3_config = Config(
 
 # Initialize S3 client at module level (thread-safe, reused)
 s3_client = boto3.client('s3', config=s3_config)
-logger.info("Prompts S3 client initialized with timeouts: connect=10s, read=30s")
+logger.info("Prompts S3 client initialized with timeouts: connect=10s, read=30s, max_attempts=1")
 
 # Configuration from environment variables
 PROMPT_BUCKET = os.environ.get('PROMPT_BUCKET')

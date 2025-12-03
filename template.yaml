@@ -29,7 +29,7 @@ Parameters:
 
 Globals:
   Function:
-    Timeout: 30
+    Timeout: 120  # 2 minutes to accommodate agent processing
     MemorySize: 256
     Runtime: python3.13
     Tracing: Active
@@ -49,7 +49,7 @@ Resources:
       FunctionName: !Sub sqs-email-handler-${Environment}
       CodeUri: src/
       Handler: sqs_email_handler.lambda_handler
-      Description: Process emails from SES via SQS with Bedrock agent summarization
+      Description: Process emails from SES via SQS with Bedrock agent
 
       # SQS Event Source
       Events:
@@ -79,8 +79,7 @@ Resources:
                 - sqs:GetQueueAttributes
               Resource: !Ref SQSQueueArn
 
-            # Bedrock - Invoke AgentCore agents (uses bedrock-agentcore client)
-            # Note: Wildcard needed because actual resource is: {AgentRuntimeArn}/runtime-endpoint/DEFAULT
+            # Bedrock - Invoke AgentCore agents
             - Effect: Allow
               Action:
                 - bedrock-agentcore:InvokeAgentRuntime

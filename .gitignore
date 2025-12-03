@@ -50,3 +50,4 @@ env-vars.json
 .pytest_cache/
 .coverage
 htmlcov/
+env-vars-local.json

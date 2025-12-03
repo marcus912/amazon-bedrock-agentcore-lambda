@@ -98,11 +98,11 @@ def _initialize_bedrock_client():
     # Lambda timeout will handle failure scenarios
     client_config = Config(
         retries={
-            'max_attempts': 0,  # 0 attempts = 1 total call, NO retries
+            'max_attempts': 1,  # 1 attempt total (no retries)
             'mode': 'standard'
         },
         connect_timeout=10,  # 10 seconds to establish connection
-        read_timeout=120     # 120 seconds max for reading response (prevents infinite hang)
+        read_timeout=90      # 90 seconds max for reading response (leaves buffer for Lambda)
     )
 
     # Get region from environment or use default
@@ -117,7 +117,7 @@ def _initialize_bedrock_client():
 
     logger.info(
         f"Bedrock AgentCore client initialized: region={region}, "
-        f"connect_timeout=10s, read_timeout=120s, max_attempts=0 (no retries)"
+        f"connect_timeout=10s, read_timeout=90s, max_attempts=1 (no retries)"
     )
     return client
 
@@ -290,6 +290,128 @@ def invoke_agent(prompt: str, session_id: Optional[str] = None) -> str:
         else:
             logger.error(
                 f"Agent invocation failed: error_code={error_code}, "
+                f"error_message={error_message}, "
+                f"agent_arn={AGENT_RUNTIME_ARN[:50]}..."
+            )
+            raise
+
+
+def invoke_agent_async(prompt: str, session_id: Optional[str] = None) -> str:
+    """
+    Invoke a Bedrock AgentCore agent asynchronously (fire-and-forget).
+
+    This function starts the agent invocation but does NOT wait for the response.
+    The Lambda function can return immediately while the agent continues processing.
+    This is useful when you want to trigger agent execution without blocking.
+
+    WARNING: The agent's response will NOT be captured. Use this only when you
+    don't need the response and the agent performs side effects (e.g., creating
+    GitHub issues via MCP tools).
+
+    Args:
+        prompt: The input text to send to the agent (required, non-empty string)
+        session_id: Optional session ID for multi-turn conversations.
+                   If None, a new session ID will be generated automatically.
+
+    Returns:
+        str: A message indicating the agent was invoked asynchronously
+             (format: "Agent invoked asynchronously: session_id={session_id}")
+
+    Raises:
+        ValidationException: If prompt is invalid (empty or wrong type)
+        ClientError: For AWS service errors during invocation start
+
+    Example:
+        >>> from integrations import agentcore_invocation
+        >>> result = agentcore_invocation.invoke_agent_async(
+        ...     prompt="Create GitHub issue for this bug report",
+        ...     session_id=None
+        ... )
+        >>> print(result)
+        "Agent invoked asynchronously: session_id=session-abc123..."
+        # Lambda returns immediately, agent continues processing in background
+    """
+    start_time = time.time()
+
+    # Validate prompt
+    if not prompt or not isinstance(prompt, str):
+        raise ValidationException(
+            f"Prompt must be a non-empty string. Got: {type(prompt).__name__} "
+            f"with value: {repr(prompt[:50]) if prompt else 'None'}"
+        )
+
+    # Validate session_id if provided
+    if session_id is not None:
+        if not isinstance(session_id, str):
+            raise ValidationException(
+                f"session_id must be a string or None. Got: {type(session_id).__name__}"
+            )
+        if len(session_id) < 33:
+            raise ValidationException(
+                f"session_id must be at least 33 characters long (Bedrock requirement). "
+                f"Got: {len(session_id)} characters"
+            )
+
+    # Generate session ID if not provided
+    if session_id is None:
+        session_id = _generate_session_id()
+        logger.info(f"Generated new session ID: {session_id}")
+    else:
+        logger.info(f"Using provided session ID: {session_id}")
+
+    # Format payload as JSON string (AgentCore API requirement)
+    payload = json.dumps({"prompt": prompt})
+
+    logger.info(
+        f"Invoking agent ASYNCHRONOUSLY: prompt_length={len(prompt)}, "
+        f"session_id={session_id}, "
+        f"agent_arn={AGENT_RUNTIME_ARN[:50]}..."
+    )
+
+    try:
+        # Call Bedrock AgentCore API - start invocation but DON'T read response
+        response = bedrock_client.invoke_agent_runtime(
+            agentRuntimeArn=AGENT_RUNTIME_ARN,
+            runtimeSessionId=session_id,
+            payload=payload,
+            qualifier="DEFAULT"
+        )
+
+        # DO NOT read the response stream - this allows Lambda to return immediately
+        # The agent will continue processing in the background
+
+        invocation_time = time.time() - start_time
+        logger.info(
+            f"Agent invocation STARTED (async): "
+            f"session_id={session_id}, "
+            f"invocation_time={invocation_time:.3f}s"
+        )
+        logger.info(
+            "NOTE: Lambda will return immediately. Agent continues processing in background."
+        )
+
+        return f"Agent invoked asynchronously: session_id={session_id}"
+
+    except ClientError as e:
+        error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+        error_message = e.response.get('Error', {}).get('Message', str(e))
+
+        # Map AWS errors to domain-specific exceptions
+        if error_code == 'ResourceNotFoundException':
+            logger.error(
+                f"Agent not found: agent_arn={AGENT_RUNTIME_ARN}, "
+                f"error={error_message}"
+            )
+            raise AgentNotFoundException(
+                f"Agent not found: {AGENT_RUNTIME_ARN}. "
+                f"Verify the agent exists and is active. Error: {error_message}"
+            )
+        elif error_code == 'ThrottlingException':
+            logger.error(f"Request throttled: {error_message}")
+            raise ThrottlingException(f"Request throttled by Bedrock service: {error_message}")
+        else:
+            logger.error(
+                f"Agent invocation (async) failed: error_code={error_code}, "
                 f"error_message={error_message}, "
                 f"agent_arn={AGENT_RUNTIME_ARN[:50]}..."
             )

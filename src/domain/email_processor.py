@@ -85,11 +85,11 @@ class EmailProcessor:
                 f"attachments={len(email_content.attachments)}"
             )
 
-            # Step 3: Invoke agent to create GitHub issue
+            # Step 3: Invoke agent asynchronously to create GitHub issue
             agent_response = self._invoke_agent(metadata, email_content)
             logger.info(
-                f"✓ Agent invocation SUCCEEDED: "
-                f"response_length={len(agent_response)}"
+                f"✓ Agent invocation STARTED (async): "
+                f"message={agent_response}"
             )
 
             # Step 4: Log success and return result
@@ -219,14 +219,17 @@ class EmailProcessor:
         content: EmailContent
     ) -> str:
         """
-        Invoke Bedrock agent to create GitHub issue from email.
+        Invoke Bedrock agent asynchronously to create GitHub issue from email.
+
+        This method starts the agent invocation but does NOT wait for the response.
+        The Lambda function returns immediately while the agent continues processing.
 
         Args:
             metadata: Email metadata
             content: Parsed email content
 
         Returns:
-            str: Agent's response (includes GitHub issue URL if successful)
+            str: Confirmation message that agent was invoked asynchronously
 
         Raises:
             Various exceptions from agent invocation (caught by caller)
@@ -236,46 +239,23 @@ class EmailProcessor:
             logger.warning("Email body is empty, skipping agent invocation")
             return "[Skipped] Email body is empty"
 
-        logger.info("Invoking Bedrock agent to create GitHub issue from email...")
+        logger.info("Invoking Bedrock agent ASYNCHRONOUSLY to create GitHub issue from email...")
         agent_start_time = time.time()
 
-        try:
-            # Load and format prompt template
-            prompt = self._create_github_issue_prompt(metadata, content)
+        # Load and format prompt template
+        prompt = self._create_github_issue_prompt(metadata, content)
 
-            # Invoke agent
-            agent_response = agentcore_invocation.invoke_agent(
-                prompt=prompt,
-                session_id=None  # New session for each email
-            )
+        # Invoke agent ASYNCHRONOUSLY (fire-and-forget)
+        # Lambda will return immediately, agent continues processing in background
+        agent_response = agentcore_invocation.invoke_agent_async(
+            prompt=prompt,
+            session_id=None  # New session for each email
+        )
 
-            agent_time = time.time() - agent_start_time
-            logger.info(f"Agent execution time: {agent_time:.2f}s")
+        agent_time = time.time() - agent_start_time
+        logger.info(f"Agent invocation started (async): {agent_time:.3f}s")
 
-            return agent_response
-
-        except agentcore_invocation.ConfigurationError as e:
-            logger.error(f"✗ Agent invocation FAILED - Configuration error: {e}")
-            return f"[Configuration Error] {str(e)}"
-
-        except agentcore_invocation.AgentNotFoundException as e:
-            logger.error(f"✗ Agent invocation FAILED - Agent not found: {e}")
-            return f"[Agent Not Found] {str(e)}"
-
-        except agentcore_invocation.ThrottlingException as e:
-            logger.warning(f"✗ Agent invocation FAILED - Throttled: {e}")
-            return f"[Throttled] {str(e)}"
-
-        except agentcore_invocation.ValidationException as e:
-            logger.error(f"✗ Agent invocation FAILED - Validation error: {e}")
-            return f"[Validation Error] {str(e)}"
-
-        except Exception as e:
-            logger.error(
-                f"✗ Agent invocation FAILED - Unexpected error: {e}",
-                exc_info=True
-            )
-            return f"[Error] {str(e)}"
+        return agent_response
 
     def _create_github_issue_prompt(
         self,
@@ -320,15 +300,15 @@ class EmailProcessor:
         agent_response: str
     ) -> None:
         """
-        Log successful email processing.
+        Log successful email processing and async agent invocation.
 
         Args:
             metadata: Email metadata
             content: Email content
-            agent_response: Agent's response
+            agent_response: Confirmation message from async agent invocation
         """
         logger.info("=" * 70)
-        logger.info("EMAIL PROCESSING SUCCESS")
+        logger.info("EMAIL PROCESSING SUCCESS (ASYNC)")
         logger.info("=" * 70)
         logger.info(f"From: {metadata.from_address}")
         logger.info(f"To: {metadata.to_addresses}")
@@ -344,11 +324,12 @@ class EmailProcessor:
             logger.info("Body: (empty)")
 
         logger.info("")
-        logger.info("AGENT RESPONSE:")
+        logger.info("AGENT INVOCATION STATUS:")
         logger.info("-" * 70)
         logger.info(agent_response)
         logger.info("-" * 70)
         logger.info("")
-        logger.info("Email processing completed successfully")
+        logger.info("Lambda processing completed successfully")
+        logger.info("NOTE: Agent continues processing in background (async)")
         logger.info("NOTE: GitHub issue creation is handled by the agent's MCP tools")
         logger.info("=" * 70)
