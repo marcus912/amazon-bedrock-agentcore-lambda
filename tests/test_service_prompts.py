@@ -275,7 +275,7 @@ Subject: {subject}
 Body:
 {body}
 
-Repository: {repository}
+Timestamp: {timestamp}
 """
 
         # Execute
@@ -284,14 +284,14 @@ Repository: {repository}
             from_address="customer@example.com",
             subject="Bug Report",
             body="Application crashes on startup",
-            repository="bugs"
+            timestamp="2024-11-05T10:30:00Z"
         )
 
         # Assert
         assert "customer@example.com" in result
         assert "Bug Report" in result
         assert "Application crashes on startup" in result
-        assert "bugs" in result
+        assert "2024-11-05T10:30:00Z" in result
 
     def test_format_prompt_missing_variable(self):
         """Test formatting with missing required variable."""

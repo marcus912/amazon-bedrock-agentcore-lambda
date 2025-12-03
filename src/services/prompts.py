@@ -106,44 +106,24 @@ def _load_from_s3(prompt_name: str) -> str:
 
 def load_prompt(prompt_name: str, use_cache: bool = True) -> str:
     """
-    Load prompt template with intelligent fallback strategy and TTL-based caching.
+    Load prompt template with caching and fallback.
 
-    Loading priority:
-    1. Cache (if warm Lambda invocation and not expired)
-    2. S3 override (if PROMPT_BUCKET set and file exists)
-    3. Local filesystem (prompts/ directory packaged with Lambda)
-
-    Cache TTL:
-    - Prompts are cached for CACHE_TTL_SECONDS (default: 5 minutes)
-    - After expiration, prompt is reloaded from S3 (or filesystem if S3 unavailable)
-    - This ensures S3 updates are picked up within the TTL window
-
-    This ensures:
-    - Fast loading (cache with TTL)
-    - S3 updates reflected within TTL window
-    - Runtime updates possible (S3 override)
-    - Always works (local filesystem fallback)
+    Priority: Cache -> S3 override -> Local filesystem
 
     Args:
-        prompt_name: Name of the prompt file (e.g., "github_issue.txt")
-        use_cache: Whether to use cached version (default: True)
+        prompt_name: Prompt file name (e.g., "github_issue.txt")
+        use_cache: Use cached version if available (default: True)
 
     Returns:
-        str: The prompt template content
+        str: Prompt template content
 
     Raises:
-        ValueError: If prompt not found anywhere
-        FileNotFoundError: If prompt missing from filesystem
-
-    Example:
-        >>> prompt = load_prompt("github_issue.txt")
-        >>> len(prompt) > 0
-        True
+        ValueError: If prompt not found
     """
     cache_key = f"prompt:{prompt_name}"
     current_time = time.time()
 
-    # 1. Check cache first (for warm Lambda invocations)
+    # Check cache
     if use_cache and cache_key in _prompt_cache:
         cached_content, cached_time = _prompt_cache[cache_key]
         age_seconds = current_time - cached_time
@@ -163,7 +143,7 @@ def load_prompt(prompt_name: str, use_cache: bool = True) -> str:
 
     prompt_content = None
 
-    # 2. Try S3 override (if configured)
+    # Try S3 override
     if PROMPT_BUCKET:
         try:
             prompt_content = _load_from_s3(prompt_name)
@@ -174,7 +154,7 @@ def load_prompt(prompt_name: str, use_cache: bool = True) -> str:
                 f"falling back to local filesystem"
             )
 
-    # 3. Fall back to local filesystem (always available)
+    # Fall back to local filesystem
     if prompt_content is None:
         try:
             prompt_content = _load_from_filesystem(prompt_name)
@@ -199,6 +179,7 @@ def format_prompt(template: str, **variables) -> str:
     Format prompt template with variables.
 
     Uses Python string.format() to substitute variables in the template.
+    User-controlled values are escaped to prevent format string injection.
 
     Args:
         template: The prompt template string (with {variable} placeholders)
@@ -217,7 +198,17 @@ def format_prompt(template: str, **variables) -> str:
         Hello Alice, you are 30 years old.
     """
     try:
-        return template.format(**variables)
+        # Escape curly braces in string values to prevent format string injection
+        # from user-controlled content (e.g., email body containing "{variable}")
+        escaped_variables = {}
+        for key, value in variables.items():
+            if isinstance(value, str):
+                # Escape { and } by doubling them, but only in the value
+                escaped_variables[key] = value.replace('{', '{{').replace('}', '}}')
+            else:
+                escaped_variables[key] = value
+
+        return template.format(**escaped_variables)
     except KeyError as e:
         missing_var = str(e).strip("'")
         logger.error(f"Missing variable in prompt template: {missing_var}")

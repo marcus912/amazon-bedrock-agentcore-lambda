@@ -88,6 +88,11 @@ def extract_email_body(email_content: bytes) -> Dict[str, Any]:
             result['text_body'] = msg.get_content()
         elif content_type == "text/html":
             result['html_body'] = msg.get_content()
+        else:
+            logger.warning(
+                f"Unknown content type for non-multipart email: {content_type}. "
+                f"Email body will be empty."
+            )
 
     return result
 

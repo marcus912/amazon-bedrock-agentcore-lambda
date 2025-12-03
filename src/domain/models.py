@@ -86,15 +86,7 @@ class ProcessingResult:
 
     @property
     def should_delete_message(self) -> bool:
-        """
-        Determine if SQS message should be deleted.
-
-        Policy: Always delete to prevent infinite retries.
-        Failed messages are logged to CloudWatch for manual review.
-
-        Returns:
-            bool: Always True (delete all messages)
-        """
+        """Always True - delete all messages to prevent infinite retries."""
         return True
 
     def __repr__(self) -> str:

@@ -30,69 +30,40 @@ class EmailProcessor:
     """
     Handles end-to-end email processing pipeline.
 
-    This class encapsulates all business logic for processing SES email
-    notifications. It provides a clean, testable interface with explicit
-    error handling through the ProcessingResult type.
-
-    Usage:
-        processor = EmailProcessor()
-        result = processor.process_ses_record(sqs_record)
-        if result.success:
-            logger.info("Success!")
-        else:
-            logger.error(f"Failed: {result.error_message}")
+    Processes SES email notifications and invokes Bedrock agent to create
+    GitHub issues. Returns ProcessingResult for explicit success/failure handling.
     """
 
-    def __init__(self, default_repository: str = "bugs"):
-        """
-        Initialize email processor.
-
-        Args:
-            default_repository: Default GitHub repository for issue creation
-        """
-        self.default_repository = default_repository
+    def __init__(self):
+        """Initialize email processor."""
+        pass
 
     def process_ses_record(self, record: Dict[str, Any]) -> ProcessingResult:
         """
         Process a single SQS record containing SES notification.
 
-        This is the main entry point for processing. It orchestrates the
-        entire pipeline and catches all errors, returning them as
-        ProcessingResult with success=False.
-
         Args:
             record: SQS record dict containing SES notification
 
         Returns:
-            ProcessingResult: Explicit success or failure result
+            ProcessingResult with success=True or success=False (errors logged)
         """
         message_id = record.get('messageId', 'UNKNOWN')
         logger.info(f"Processing SQS message: {message_id}")
 
         try:
-            # Step 1: Parse SES notification
             metadata = self._parse_ses_notification(record)
-            logger.info(
-                f"Parsed email metadata: from={metadata.from_address}, "
-                f"subject={metadata.subject}"
-            )
+            logger.info(f"Parsed: from={metadata.from_address}, subject={metadata.subject}")
 
-            # Step 2: Fetch email from S3
             email_content = self._fetch_email(metadata)
             logger.info(
-                f"Fetched email: text={len(email_content.text_body)} chars, "
-                f"html={len(email_content.html_body)} chars, "
-                f"attachments={len(email_content.attachments)}"
+                f"Fetched: text={len(email_content.text_body)}, "
+                f"html={len(email_content.html_body)}, attachments={len(email_content.attachments)}"
             )
 
-            # Step 3: Invoke agent asynchronously to create GitHub issue
             agent_response = self._invoke_agent(metadata, email_content)
-            logger.info(
-                f"✓ Agent invocation STARTED (async): "
-                f"message={agent_response}"
-            )
+            logger.info(f"Agent started: {agent_response}")
 
-            # Step 4: Log success and return result
             self._log_processing_success(metadata, email_content, agent_response)
 
             return ProcessingResult(
@@ -103,15 +74,7 @@ class EmailProcessor:
             )
 
         except Exception as e:
-            # Catch all errors and return as failure result
-            logger.error(
-                f"✗ CRITICAL ERROR processing message {message_id}: {str(e)}",
-                exc_info=True
-            )
-            logger.warning(
-                f"⚠ Message {message_id} will be DELETED despite error "
-                f"(no retry - error logged for manual review)"
-            )
+            logger.error(f"Failed to process {message_id}: {e}", exc_info=True)
 
             return ProcessingResult(
                 success=False,
@@ -157,12 +120,26 @@ class EmailProcessor:
         receipt = ses_notification['receipt']
         common_headers = mail.get('commonHeaders', {})
 
-        # Extract from address (can be list or returnPath)
+        # Extract from address (can be list, string, or fallback to returnPath)
         from_field = common_headers.get('from', [])
         if isinstance(from_field, list) and len(from_field) > 0:
             from_address = from_field[0]
+        elif isinstance(from_field, str) and from_field:
+            # Handle case where 'from' is a string instead of list
+            from_address = from_field
         else:
-            from_address = common_headers.get('returnPath', 'Unknown')
+            # Fallback to returnPath from mail object (not commonHeaders)
+            from_address = mail.get('returnPath', 'Unknown')
+
+        # Extract to addresses (can be list or string, normalize to list)
+        to_field = common_headers.get('to', [])
+        if isinstance(to_field, list):
+            to_addresses = to_field
+        elif isinstance(to_field, str) and to_field:
+            # Handle case where 'to' is a string instead of list
+            to_addresses = [to_field]
+        else:
+            to_addresses = []
 
         # Extract S3 location
         action = receipt.get('action', {})
@@ -175,7 +152,7 @@ class EmailProcessor:
         return EmailMetadata(
             message_id=message_id,
             from_address=from_address,
-            to_addresses=common_headers.get('to', []),
+            to_addresses=to_addresses,
             subject=common_headers.get('subject', 'No Subject'),
             timestamp=mail.get('timestamp', ''),
             bucket_name=bucket_name,
@@ -287,8 +264,7 @@ class EmailProcessor:
             from_address=metadata.from_address,
             subject=metadata.subject,
             body=content.body_for_agent,
-            timestamp=metadata.timestamp,
-            repository=self.default_repository
+            timestamp=metadata.timestamp
         )
 
         return prompt
@@ -299,37 +275,17 @@ class EmailProcessor:
         content: EmailContent,
         agent_response: str
     ) -> None:
-        """
-        Log successful email processing and async agent invocation.
-
-        Args:
-            metadata: Email metadata
-            content: Email content
-            agent_response: Confirmation message from async agent invocation
-        """
-        logger.info("=" * 70)
-        logger.info("EMAIL PROCESSING SUCCESS (ASYNC)")
-        logger.info("=" * 70)
+        """Log successful processing summary."""
+        logger.info("=" * 50)
+        logger.info("EMAIL PROCESSED (ASYNC)")
         logger.info(f"From: {metadata.from_address}")
-        logger.info(f"To: {metadata.to_addresses}")
         logger.info(f"Subject: {metadata.subject}")
-        logger.info(f"Timestamp: {metadata.timestamp}")
         logger.info(f"Attachments: {len(content.attachments)}")
 
         body = content.body_for_agent
         if body:
-            preview = body[:300] + ('...' if len(body) > 300 else '')
-            logger.info(f"Body: {preview}")
-        else:
-            logger.info("Body: (empty)")
+            preview = body[:200] + ('...' if len(body) > 200 else '')
+            logger.info(f"Body preview: {preview}")
 
-        logger.info("")
-        logger.info("AGENT INVOCATION STATUS:")
-        logger.info("-" * 70)
-        logger.info(agent_response)
-        logger.info("-" * 70)
-        logger.info("")
-        logger.info("Lambda processing completed successfully")
-        logger.info("NOTE: Agent continues processing in background (async)")
-        logger.info("NOTE: GitHub issue creation is handled by the agent's MCP tools")
-        logger.info("=" * 70)
+        logger.info(f"Agent: {agent_response}")
+        logger.info("=" * 50)

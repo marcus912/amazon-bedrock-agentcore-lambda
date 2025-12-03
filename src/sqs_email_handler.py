@@ -1,20 +1,8 @@
 """
 AWS Lambda handler for processing SES email notifications from SQS.
 
-This is a thin orchestration layer that delegates all business logic
-to the EmailProcessor domain class. The handler's only responsibilities are:
-1. Initialize the processor
-2. Iterate over SQS records
-3. Invoke the processor for each record
-4. Log results
-5. Return SQS batch response
-
-Architecture:
-    Handler (this file) → EmailProcessor → Services → Integrations
-
-Policy:
-    Always delete all SQS messages to prevent infinite retries.
-    Failed messages are logged to CloudWatch for manual review.
+Thin orchestration layer that delegates to EmailProcessor.
+Policy: Always delete messages (no retries). Errors logged to CloudWatch.
 """
 
 import logging
@@ -40,21 +28,14 @@ email_processor = EmailProcessor()
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
-    AWS Lambda handler for SES email processing.
-
-    This handler processes SQS records containing SES email notifications.
-    Each email is processed independently, and the Bedrock agent creates
-    GitHub issues using its MCP tools.
-
-    Policy: Always delete all messages (return empty batchItemFailures)
-    to prevent infinite retries. Failed messages are logged to CloudWatch.
+    Process SES email notifications from SQS.
 
     Args:
-        event: Lambda event containing SQS records
-        context: Lambda context object
+        event: Lambda event with SQS records
+        context: Lambda context
 
     Returns:
-        Dict with batchItemFailures (always empty)
+        Dict with batchItemFailures (always empty - no retries)
     """
     logger.info("=" * 70)
     logger.info("SES Email Processor - Started")
@@ -87,6 +68,4 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     logger.info(f"  Errors: {error_count}")
     logger.info("=" * 70)
 
-    # Policy: Always delete all messages to prevent infinite retries
-    # Failed messages are logged to CloudWatch for manual review
     return {"batchItemFailures": []}

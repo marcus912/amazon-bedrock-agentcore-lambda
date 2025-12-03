@@ -98,10 +98,12 @@ class TestLambdaHandler:
     @patch('services.s3.s3_client')
     def test_lambda_handler_s3_error(self, mock_s3_client, sqs_event, mock_context):
         """Test handler when S3 fetch fails - message is still deleted."""
-        # Mock S3 error
+        # Mock S3 error using proper ClientError (matches s3.py exception handling)
         from botocore.exceptions import ClientError
-        mock_s3_client.exceptions.NoSuchKey = type('NoSuchKey', (Exception,), {})
-        mock_s3_client.get_object.side_effect = mock_s3_client.exceptions.NoSuchKey()
+        mock_s3_client.get_object.side_effect = ClientError(
+            {'Error': {'Code': 'NoSuchKey', 'Message': 'The specified key does not exist.'}},
+            'GetObject'
+        )
 
         # Invoke handler
         result = sqs_email_handler.lambda_handler(sqs_event, mock_context)
@@ -250,9 +252,12 @@ class TestLambdaHandler:
             ]
         }
 
-        # Mock S3 to fail
-        mock_s3_client.exceptions.NoSuchKey = type('NoSuchKey', (Exception,), {})
-        mock_s3_client.get_object.side_effect = mock_s3_client.exceptions.NoSuchKey()
+        # Mock S3 to fail using proper ClientError
+        from botocore.exceptions import ClientError
+        mock_s3_client.get_object.side_effect = ClientError(
+            {'Error': {'Code': 'NoSuchKey', 'Message': 'The specified key does not exist.'}},
+            'GetObject'
+        )
 
         # Invoke handler
         result = sqs_email_handler.lambda_handler(mixed_failure_event, mock_context)

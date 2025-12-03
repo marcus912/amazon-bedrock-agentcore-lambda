@@ -42,7 +42,6 @@ The `github_issue.txt` template uses these variables:
 - `{subject}` - Email subject line
 - `{body}` - Email body content
 - `{timestamp}` - Email received timestamp
-- `{repository}` - Target GitHub repository (default: "bugs")
 
 ### Loading Strategy
 

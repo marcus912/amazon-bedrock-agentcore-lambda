@@ -151,64 +151,35 @@ def _generate_session_id() -> str:
 
 def invoke_agent(prompt: str, session_id: Optional[str] = None) -> str:
     """
-    Invoke a Bedrock AgentCore agent with the given prompt.
-
-    This function provides a simple interface for Lambda handlers to invoke
-    Bedrock agents. It handles session management, payload formatting, and
-    response parsing automatically.
+    Invoke a Bedrock AgentCore agent synchronously.
 
     Args:
-        prompt: The input text to send to the agent (required, non-empty string)
-        session_id: Optional session ID for multi-turn conversations.
-                   If None, a new session ID will be generated automatically.
+        prompt: Input text for the agent (non-empty string)
+        session_id: Optional session ID (33+ chars). Auto-generated if None.
 
     Returns:
-        str: The agent's complete response text
+        str: Agent's response text
 
     Raises:
-        ValidationException: If prompt is invalid (empty or wrong type)
-        AgentNotFoundException: If the configured agent cannot be found
-        ThrottlingException: If requests are being throttled after retries
-        ConfigurationError: If module configuration is invalid
-        ClientError: For other AWS service errors
-
-    Example:
-        >>> from integrations import agentcore_invocation
-        >>> response = agentcore_invocation.invoke_agent(
-        ...     prompt="What is the weather in San Francisco?",
-        ...     session_id=None
-        ... )
-        >>> print(response)
-        "The current weather in San Francisco is 68°F with partly cloudy skies."
-
-        # Multi-turn conversation
-        >>> session = None
-        >>> response1 = agentcore_invocation.invoke_agent(
-        ...     prompt="Tell me about Python.",
-        ...     session_id=session
-        ... )
-        >>> # Extract session from first response metadata (if needed)
-        >>> response2 = agentcore_invocation.invoke_agent(
-        ...     prompt="Can you give me an example?",
-        ...     session_id=session  # Same session for context
-        ... )
+        ValidationException: Invalid prompt or session_id
+        AgentNotFoundException: Agent not found
+        ThrottlingException: Request throttled
+        ClientError: Other AWS errors
     """
     start_time = time.time()
 
     # Validate prompt
-    if not prompt or not isinstance(prompt, str):
+    if not isinstance(prompt, str) or not prompt:
         raise ValidationException(
             f"Prompt must be a non-empty string. Got: {type(prompt).__name__} "
-            f"with value: {repr(prompt[:50]) if prompt else 'None'}"
+            f"with value: {repr(prompt[:50] if isinstance(prompt, str) else prompt)}"
         )
 
-    # Validate session_id if provided
     if session_id is not None:
         if not isinstance(session_id, str):
             raise ValidationException(
                 f"session_id must be a string or None. Got: {type(session_id).__name__}"
             )
-        # Basic UUID4 format validation (optional but helps catch obvious errors)
         if len(session_id) < 33:
             raise ValidationException(
                 f"session_id must be at least 33 characters long (Bedrock requirement). "
@@ -300,44 +271,27 @@ def invoke_agent_async(prompt: str, session_id: Optional[str] = None) -> str:
     """
     Invoke a Bedrock AgentCore agent asynchronously (fire-and-forget).
 
-    This function starts the agent invocation but does NOT wait for the response.
-    The Lambda function can return immediately while the agent continues processing.
-    This is useful when you want to trigger agent execution without blocking.
-
-    WARNING: The agent's response will NOT be captured. Use this only when you
-    don't need the response and the agent performs side effects (e.g., creating
-    GitHub issues via MCP tools).
+    Starts agent invocation without waiting for response. Use when agent
+    performs side effects (e.g., creating GitHub issues) and response isn't needed.
 
     Args:
-        prompt: The input text to send to the agent (required, non-empty string)
-        session_id: Optional session ID for multi-turn conversations.
-                   If None, a new session ID will be generated automatically.
+        prompt: Input text for the agent (non-empty string)
+        session_id: Optional session ID (33+ chars). Auto-generated if None.
 
     Returns:
-        str: A message indicating the agent was invoked asynchronously
-             (format: "Agent invoked asynchronously: session_id={session_id}")
+        str: Confirmation message with session_id
 
     Raises:
-        ValidationException: If prompt is invalid (empty or wrong type)
-        ClientError: For AWS service errors during invocation start
-
-    Example:
-        >>> from integrations import agentcore_invocation
-        >>> result = agentcore_invocation.invoke_agent_async(
-        ...     prompt="Create GitHub issue for this bug report",
-        ...     session_id=None
-        ... )
-        >>> print(result)
-        "Agent invoked asynchronously: session_id=session-abc123..."
-        # Lambda returns immediately, agent continues processing in background
+        ValidationException: Invalid prompt or session_id
+        ClientError: AWS service errors
     """
     start_time = time.time()
 
     # Validate prompt
-    if not prompt or not isinstance(prompt, str):
+    if not isinstance(prompt, str) or not prompt:
         raise ValidationException(
             f"Prompt must be a non-empty string. Got: {type(prompt).__name__} "
-            f"with value: {repr(prompt[:50]) if prompt else 'None'}"
+            f"with value: {repr(prompt[:50] if isinstance(prompt, str) else prompt)}"
         )
 
     # Validate session_id if provided
@@ -370,6 +324,8 @@ def invoke_agent_async(prompt: str, session_id: Optional[str] = None) -> str:
 
     try:
         # Call Bedrock AgentCore API - start invocation but DON'T read response
+        # NOTE: This call is still synchronous and will block for ~1-2 seconds
+        # while the agent initializes, but won't wait for completion (60-90s)
         response = bedrock_client.invoke_agent_runtime(
             agentRuntimeArn=AGENT_RUNTIME_ARN,
             runtimeSessionId=session_id,
@@ -377,8 +333,14 @@ def invoke_agent_async(prompt: str, session_id: Optional[str] = None) -> str:
             qualifier="DEFAULT"
         )
 
-        # DO NOT read the response stream - this allows Lambda to return immediately
-        # The agent will continue processing in the background
+        # Close the response stream without reading it
+        # Agent continues processing independently
+        if 'response' in response and hasattr(response['response'], 'close'):
+            try:
+                response['response'].close()
+            except Exception as close_error:
+                # Log but don't fail - agent was already started successfully
+                logger.warning(f"Failed to close response stream (agent still running): {close_error}")
 
         invocation_time = time.time() - start_time
         logger.info(
@@ -387,7 +349,7 @@ def invoke_agent_async(prompt: str, session_id: Optional[str] = None) -> str:
             f"invocation_time={invocation_time:.3f}s"
         )
         logger.info(
-            "NOTE: Lambda will return immediately. Agent continues processing in background."
+            "NOTE: Lambda returns after agent START (~1-2s), not completion (~60-90s)."
         )
 
         return f"Agent invoked asynchronously: session_id={session_id}"

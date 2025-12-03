@@ -2,137 +2,52 @@
 
 ## Prerequisites
 
-- AWS CLI configured with appropriate credentials
-- SAM CLI installed (`sam --version` to verify)
-- Python 3.13+
-- Existing AWS resources:
-  - S3 bucket for SES emails
-  - SQS queue for SES notifications
-  - Bedrock Agent with GitHub MCP tools
+- AWS CLI, SAM CLI, Python 3.13+
+- Existing: S3 bucket, SQS queue, Bedrock Agent with GitHub MCP tools
 
-## Quick Start
-
-### 1. Configure Environment
+## Deploy
 
 ```bash
-# Copy template and fill in your values
+# 1. Configure
 cp .env.example .env
+# Edit .env with: AGENT_RUNTIME_ARN, SES_EMAIL_BUCKET_NAME, SQS_QUEUE_ARN
 
-# Edit .env with your actual values:
-# - ENVIRONMENT=dev
-# - AGENT_RUNTIME_ARN=arn:aws:bedrock-agentcore:...
-# - SES_EMAIL_BUCKET_NAME=your-bucket-name
-# - SQS_QUEUE_ARN=arn:aws:sqs:...
+# 2. Deploy
+bin/deploy.sh                    # Deploy to dev
+ENVIRONMENT=prod bin/deploy.sh   # Deploy to prod
 ```
 
-### 2. Deploy
+## Verify
 
 ```bash
-# One command deployment
-bin/deploy.sh
-
-# Or deploy to specific environment
-ENVIRONMENT=staging bin/deploy.sh
-```
-
-The script will:
-1. Validate all required parameters
-2. Build the SAM application
-3. Deploy to AWS
-4. Display deployment outputs
-
-## Deployment Outputs
-
-After successful deployment:
-
-```
-Lambda Function: sqs-email-handler-{env}
-Function ARN: arn:aws:lambda:{region}:{account}:function:sqs-email-handler-{env}
-SQS Queue: {your-queue-arn}
-S3 Bucket: {your-bucket-name}
-```
-
-## Verify Deployment
-
-```bash
-# Check function exists
+# Check function
 aws lambda get-function --function-name sqs-email-handler-dev
 
-# View logs
-aws logs tail /aws/lambda/sqs-email-handler-dev --follow
-
-# Check SQS queue
-aws sqs get-queue-attributes \
-  --queue-url https://sqs.{region}.amazonaws.com/{account}/{queue-name} \
-  --attribute-names ApproximateNumberOfMessages
-```
-
-## Test
-
-Send an email to your SES address, then check logs:
-
-```bash
+# View logs (send test email first)
 aws logs tail /aws/lambda/sqs-email-handler-dev --follow
 ```
 
-Look for:
-- Email processing started
+**Expected logs**:
 - Agent invocation STARTED (async)
-- Lambda completion (< 1 second)
-- SQS message consumed
-
-**Note**: With async agent invocation, Lambda returns immediately. To verify the GitHub issue was created, check GitHub directly. The agent processes in the background after Lambda completes.
+- Lambda completes in ~1-2s
+- Check GitHub for created issue (agent processes in background)
 
 ## Troubleshooting
 
-### Permission Errors
+**Agent fails**:
+- Verify `AGENT_RUNTIME_ARN` is correct
+- Check agent state is `PREPARED`
+- Ensure Lambda role has `bedrock-agentcore:InvokeAgentRuntime`
 
-Ensure your IAM user has:
-- CloudFormation create/update permissions
-- Lambda management permissions
-- IAM role creation permissions
-- S3 access to deployment bucket
+**Lambda not triggered**:
+- Check IAM permissions (S3, SQS, Bedrock)
+- Verify event source mapping exists
+- Check SQS queue has messages
 
-### Agent Invocation Fails
+**Update deployment**: Re-run `bin/deploy.sh` after code changes
 
-Check:
-1. AGENT_RUNTIME_ARN is correct
-2. Lambda has `bedrock-agentcore:InvokeAgentRuntime` permission (check template.yaml line 85 - for bedrock-agentcore client)
-3. Agent exists and is in `PREPARED` state
-
-### SQS Messages Not Triggering
-
-Verify:
-1. SQS queue ARN is correct
-2. Event source mapping created (check AWS Console)
-3. SQS queue has messages
-
-## Update Deployment
-
+**Delete stack**:
 ```bash
-# Make code changes
-# Then redeploy
-bin/deploy.sh
-```
-
-SAM will detect changes and update the stack.
-
-## Delete Stack
-
-```bash
-# Delete CloudFormation stack
 aws cloudformation delete-stack --stack-name bedrock-agentcore-lambda-dev
-
-# Verify deletion
-aws cloudformation describe-stacks --stack-name bedrock-agentcore-lambda-dev
 ```
-
-**Note**: This does NOT delete the S3 bucket, SQS queue, or Bedrock agent (they are externally managed).
-
-## Environments
-
-- **dev**: Development (auto-confirm changeset)
-- **staging**: Pre-production (auto-confirm changeset)
-- **prod**: Production (requires manual confirmation)
-
-Edit `samconfig.toml` to change environment settings.
+(Does not delete S3 bucket, SQS queue, or Bedrock agent)

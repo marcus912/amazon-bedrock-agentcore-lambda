@@ -40,12 +40,11 @@ class TestFetchEmailFromS3:
     @patch('services.s3.s3_client')
     def test_fetch_email_no_such_key(self, mock_s3_client):
         """Test fetch when S3 object doesn't exist."""
-        # Setup - Create proper exception class that inherits from Exception
-        class NoSuchKey(Exception):
-            pass
-
-        mock_s3_client.exceptions.NoSuchKey = NoSuchKey
-        mock_s3_client.get_object.side_effect = NoSuchKey("Key not found")
+        # Setup - Use proper ClientError with error code (matches s3.py implementation)
+        mock_s3_client.get_object.side_effect = ClientError(
+            {'Error': {'Code': 'NoSuchKey', 'Message': 'The specified key does not exist.'}},
+            'GetObject'
+        )
 
         # Execute & Assert
         with pytest.raises(ValueError, match="Email file not found in S3"):
@@ -54,16 +53,11 @@ class TestFetchEmailFromS3:
     @patch('services.s3.s3_client')
     def test_fetch_email_no_such_bucket(self, mock_s3_client):
         """Test fetch when S3 bucket doesn't exist."""
-        # Setup - Create proper exception classes that inherit from Exception
-        class NoSuchKey(Exception):
-            pass
-
-        class NoSuchBucket(Exception):
-            pass
-
-        mock_s3_client.exceptions.NoSuchKey = NoSuchKey
-        mock_s3_client.exceptions.NoSuchBucket = NoSuchBucket
-        mock_s3_client.get_object.side_effect = NoSuchBucket("Bucket does not exist")
+        # Setup - Use proper ClientError with error code (matches s3.py implementation)
+        mock_s3_client.get_object.side_effect = ClientError(
+            {'Error': {'Code': 'NoSuchBucket', 'Message': 'The specified bucket does not exist.'}},
+            'GetObject'
+        )
 
         # Execute & Assert
         with pytest.raises(ValueError, match="S3 bucket not found"):
@@ -71,22 +65,25 @@ class TestFetchEmailFromS3:
 
     @patch('services.s3.s3_client')
     def test_fetch_email_generic_error(self, mock_s3_client):
-        """Test fetch with generic S3 error."""
-        # Setup - Mock NoSuchKey and NoSuchBucket first so they don't interfere
-        class NoSuchKey(Exception):
-            pass
-
-        class NoSuchBucket(Exception):
-            pass
-
-        mock_s3_client.exceptions.NoSuchKey = NoSuchKey
-        mock_s3_client.exceptions.NoSuchBucket = NoSuchBucket
-
-        # Now set the generic exception
+        """Test fetch with generic non-S3 error."""
+        # Setup - Use a generic exception (not ClientError)
         mock_s3_client.get_object.side_effect = RuntimeError("S3 connection error")
 
         # Execute & Assert
         with pytest.raises(RuntimeError, match="S3 connection error"):
+            s3.fetch_email_from_s3('test-bucket', 'emails/test.eml')
+
+    @patch('services.s3.s3_client')
+    def test_fetch_email_client_error_access_denied(self, mock_s3_client):
+        """Test fetch with ClientError (non-NoSuchKey/NoSuchBucket) re-raises."""
+        # Setup - Use ClientError with an error code that isn't specifically handled
+        mock_s3_client.get_object.side_effect = ClientError(
+            {'Error': {'Code': 'AccessDenied', 'Message': 'Access Denied'}},
+            'GetObject'
+        )
+
+        # Execute & Assert - Should re-raise the ClientError
+        with pytest.raises(ClientError):
             s3.fetch_email_from_s3('test-bucket', 'emails/test.eml')
 
     @patch('services.s3.s3_client')

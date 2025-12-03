@@ -5,7 +5,6 @@ This module provides reusable functions for interacting with Amazon S3.
 """
 
 import logging
-from typing import Optional
 
 import boto3
 from botocore.config import Config
@@ -53,12 +52,17 @@ def fetch_email_from_s3(bucket: str, key: str) -> bytes:
     try:
         response = s3_client.get_object(Bucket=bucket, Key=key)
         return response['Body'].read()
-    except s3_client.exceptions.NoSuchKey:
-        logger.error(f"S3 object not found: s3://{bucket}/{key}")
-        raise ValueError(f"Email file not found in S3: {key}")
-    except s3_client.exceptions.NoSuchBucket:
-        logger.error(f"S3 bucket not found: {bucket}")
-        raise ValueError(f"S3 bucket not found: {bucket}")
+    except ClientError as e:
+        error_code = e.response.get('Error', {}).get('Code', '')
+        if error_code == 'NoSuchKey':
+            logger.error(f"S3 object not found: s3://{bucket}/{key}")
+            raise ValueError(f"Email file not found in S3: {key}")
+        elif error_code == 'NoSuchBucket':
+            logger.error(f"S3 bucket not found: {bucket}")
+            raise ValueError(f"S3 bucket not found: {bucket}")
+        else:
+            logger.error(f"Failed to fetch from S3 s3://{bucket}/{key}: {e}")
+            raise
     except Exception as e:
         logger.error(f"Failed to fetch from S3 s3://{bucket}/{key}: {e}")
         raise
