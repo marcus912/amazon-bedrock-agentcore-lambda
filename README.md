@@ -4,7 +4,8 @@ AWS Lambda functions for Amazon Bedrock AgentCore workflows, deployed with AWS S
 
 ## Features
 
-- **SQS Email Handler**: Process emails from SES via SQS, invoke Bedrock agent to create GitHub issues
+- **SQS Email Handler**: Process emails from SES via SQS, invoke Bedrock agent asynchronously to create GitHub issues
+- **Async Agent Invocation**: Fire-and-forget pattern - Lambda returns immediately while agent continues processing
 - Four-layer architecture (handler → domain → services → integrations)
 - Type-safe domain models with dataclasses
 - Multi-environment support (dev, staging, prod)
@@ -30,10 +31,19 @@ AWS Lambda functions for Amazon Bedrock AgentCore workflows, deployed with AWS S
    │
    ├──► Fetch email from S3
    ├──► Parse MIME content (text/HTML body, attachments)
-   └──► Invoke Bedrock Agent
+   ├──► Start Bedrock Agent (ASYNC - Fire-and-Forget)
+   └──► Return immediately (consume SQS message)
         │
         ▼
-4. Bedrock Agent
+4. Lambda Complete (< 1 second)
+   └──► SQS message deleted
+
+   ┌─────────────────────────────────────────────────────────────┐
+   │         Agent Continues Processing (Background)             │
+   └─────────────────────────────────────────────────────────────┘
+        │
+        ▼
+5. Bedrock Agent (Runs Independently)
    │
    ├──► Query Knowledge Base
    │    ├── Bug report template
@@ -49,13 +59,8 @@ AWS Lambda functions for Amazon Bedrock AgentCore workflows, deployed with AWS S
    └──► GitHub MCP Tools
         │
         ▼
-5. GitHub Issue Created
-   │
-   └──► Agent returns confirmation with issue URL
-        │
-        ▼
-6. Lambda logs result to CloudWatch
-   └──► Response includes GitHub issue URL
+6. GitHub Issue Created
+   └──► Agent completes (Lambda already finished)
 ```
 
 **Step-by-Step**:
@@ -65,25 +70,27 @@ AWS Lambda functions for Amazon Bedrock AgentCore workflows, deployed with AWS S
    - Stores raw email in S3: `s3://bucket/email/msg-id`
    - Sends notification to SQS queue
 3. **SQS triggers Lambda** → Event source mapping invokes `sqs-email-handler`
-4. **Lambda processes email** →
+4. **Lambda processes email** (< 1 second) →
    - Fetches email from S3 (`s3_service.fetch_email_from_s3`)
    - Parses MIME content (`email_service.extract_email_body`)
    - Creates prompt with email content
-5. **Lambda invokes Bedrock Agent** (`agentcore_invocation.invoke_agent`) →
+5. **Lambda starts Bedrock Agent ASYNCHRONOUSLY** (`agentcore_invocation.invoke_agent_async`) →
    - Sends prompt with bug report email
-   - Agent queries knowledge base for template
-   - Agent extracts bug details from email
-   - Agent validates required fields exist
-6. **Agent creates GitHub issue** →
+   - **Does NOT wait for response** (fire-and-forget)
+   - **Lambda returns immediately**
+   - **SQS message deleted** (consumed)
+6. **Agent continues processing in background** →
+   - Queries knowledge base for template
+   - Extracts bug details from email
+   - Validates required fields exist
+7. **Agent creates GitHub issue** →
    - Uses GitHub MCP tools (no GitHub code in Lambda)
    - Formats issue per template
    - Applies appropriate labels
    - Sets severity/priority
-7. **Agent returns response** →
-   - Confirmation message
-   - GitHub issue URL
-   - Issue summary
-8. **Lambda logs result** → CloudWatch Logs includes agent response and issue URL
+8. **Agent completes** → GitHub issue created (Lambda already finished)
+
+**Key Benefit**: Lambda execution time reduced from 60-90 seconds to < 1 second. Agent processing happens independently without blocking Lambda or SQS messages.
 
 ## Prerequisites
 
@@ -212,7 +219,7 @@ sam local invoke SQSEmailHandlerFunction -e tests/events/sqs-event.json
 
 ### SQS Email Handler
 
-**Purpose**: Process SES emails from SQS, invoke Bedrock agent to analyze email and create GitHub issues using agent's MCP tools.
+**Purpose**: Process SES emails from SQS, invoke Bedrock agent asynchronously to create GitHub issues using agent's MCP tools.
 
 **Architecture**:
 - **Handler** (`sqs_email_handler.py`): Thin orchestration layer (92 lines)
@@ -224,15 +231,17 @@ sam local invoke SQSEmailHandlerFunction -e tests/events/sqs-event.json
 2. Handler delegates to `EmailProcessor.process_ses_record()`
 3. Processor fetches email from S3
 4. Parses MIME content (text/HTML body, attachments)
-5. Invokes Bedrock agent with email content
-6. Agent queries knowledge base for bug report template
-7. Agent creates GitHub issue via MCP tools
-8. Returns `ProcessingResult` (success/failure)
+5. **Invokes Bedrock agent ASYNCHRONOUSLY** with email content (fire-and-forget)
+6. **Lambda returns immediately** (< 1 second)
+7. Agent continues processing in background:
+   - Queries knowledge base for bug report template
+   - Creates GitHub issue via MCP tools
+8. Returns `ProcessingResult` with async confirmation
 
 **Configuration**:
 - Default repository: `bugs` (configurable in `EmailProcessor`)
-- Agent validates template exists in knowledge base
-- Agent validates email has required fields
+- **Async invocation mode**: Default (use `invoke_agent_async`)
+- **Sync invocation mode**: Available via `invoke_agent` (waits for response)
 - Fail-fast error handling (no retries)
 
 **Monitor**:

@@ -77,8 +77,11 @@ aws logs tail /aws/lambda/sqs-email-handler-dev --follow
 
 Look for:
 - Email processing started
-- Agent invocation
-- GitHub issue URL in agent response
+- Agent invocation STARTED (async)
+- Lambda completion (< 1 second)
+- SQS message consumed
+
+**Note**: With async agent invocation, Lambda returns immediately. To verify the GitHub issue was created, check GitHub directly. The agent processes in the background after Lambda completes.
 
 ## Troubleshooting
 

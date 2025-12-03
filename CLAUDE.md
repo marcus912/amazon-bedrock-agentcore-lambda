@@ -102,12 +102,14 @@ Python 3.13: Follow PEP 8 and type hints where beneficial
   - Always returns empty batchItemFailures (no retries)
 - `src/integrations/agentcore_invocation.py`: Core agent invocation module
   - Uses `boto3.client('bedrock-agentcore')` with `invoke_agent_runtime()` method
-  - `invoke_agent(prompt, session_id=None)`: Main API
+  - `invoke_agent(prompt, session_id=None)`: Synchronous API (waits for response)
+  - `invoke_agent_async(prompt, session_id=None)`: **Asynchronous API (fire-and-forget, default)**
   - Custom exceptions: ConfigurationError, AgentNotFoundException, ThrottlingException, ValidationException
   - Automatic session ID generation (33+ chars, UUID4)
   - **NO retries** (max_attempts=0, fail fast)
   - Strict timeouts (10s connect, 120s read)
   - JSON response parsing with graceful fallback
+  - **Async mode does NOT read response stream** → Lambda returns immediately
 - `src/services/email.py`: Email parsing utilities
   - `extract_email_body(email_content)`: Extract plain text from emails
   - `parse_email_headers(email_content)`: Parse email headers
@@ -124,7 +126,7 @@ Python 3.13: Follow PEP 8 and type hints where beneficial
 - Multi-environment support: dev, staging, prod
 - SAM template parameter: `AgentRuntimeArn`
 
-**Usage Example**:
+**Usage Example (Async - Default)**:
 ```python
 from integrations import agentcore_invocation
 from services import email, s3
@@ -133,11 +135,25 @@ from services import email, s3
 email_content = s3.fetch_email_from_s3(bucket, key)
 body = email.extract_email_body(email_content)
 
-# Invoke agent
-summary = agentcore_invocation.invoke_agent(
+# Invoke agent ASYNCHRONOUSLY (fire-and-forget)
+# Lambda returns immediately, agent continues in background
+confirmation = agentcore_invocation.invoke_agent_async(
+    prompt=f"Create GitHub issue: {body}",
+    session_id=None
+)
+# confirmation = "Agent invoked asynchronously: session_id=session-abc123..."
+# Lambda completes, SQS message deleted
+```
+
+**Usage Example (Sync - Optional)**:
+```python
+# Only use sync mode if you need the agent's response immediately
+response = agentcore_invocation.invoke_agent(
     prompt=f"Summarize: {body}",
     session_id=None
 )
+# response = "Summary of the email..."
+# Note: Lambda waits 60-90 seconds for agent to complete
 ```
 
 <!-- MANUAL ADDITIONS START -->
