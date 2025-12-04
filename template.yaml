@@ -27,9 +27,16 @@ Parameters:
     Default: ""
     Description: Existing SQS queue ARN for SES email notifications
 
+  BedrockReadTimeout:
+    Type: Number
+    Default: 300
+    MinValue: 1
+    MaxValue: 900
+    Description: Bedrock agent read timeout in seconds (default 300 = 5 minutes)
+
 Globals:
   Function:
-    Timeout: 300  # 5 minutes to accommodate agent processing
+    Timeout: 300  # 5 minutes - adjust in template if needed
     MemorySize: 256
     Runtime: python3.13
     Tracing: Active
@@ -37,6 +44,7 @@ Globals:
       Variables:
         ENVIRONMENT: !Ref Environment
         AGENT_RUNTIME_ARN: !Ref AgentRuntimeArn
+        BEDROCK_READ_TIMEOUT: !Ref BedrockReadTimeout
         PROMPT_BUCKET: !Ref SESEmailBucketName
         PROMPT_KEY_PREFIX: "prompts/"
         PROMPT_CACHE_TTL: "300"  # Prompt cache TTL in seconds (5 minutes)

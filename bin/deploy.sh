@@ -43,12 +43,16 @@ if [ ${#MISSING_VARS[@]} -gt 0 ]; then
     exit 1
 fi
 
+# Set defaults for optional variables
+BEDROCK_READ_TIMEOUT=${BEDROCK_READ_TIMEOUT:-300}
+
 # Display configuration
 echo -e "${GREEN}✅ Configuration loaded:${NC}"
 echo "   Environment: $ENVIRONMENT"
 echo "   Agent ARN: ${AGENT_RUNTIME_ARN:0:50}..."
 echo "   S3 Bucket: $SES_EMAIL_BUCKET_NAME"
 echo "   SQS Queue: ${SQS_QUEUE_ARN:0:50}..."
+echo "   Bedrock Timeout: ${BEDROCK_READ_TIMEOUT}s"
 echo ""
 
 # Build
@@ -63,7 +67,8 @@ sam deploy \
     "Environment=$ENVIRONMENT" \
     "AgentRuntimeArn=$AGENT_RUNTIME_ARN" \
     "SESEmailBucketName=$SES_EMAIL_BUCKET_NAME" \
-    "SQSQueueArn=$SQS_QUEUE_ARN"
+    "SQSQueueArn=$SQS_QUEUE_ARN" \
+    "BedrockReadTimeout=$BEDROCK_READ_TIMEOUT"
 
 echo ""
 echo -e "${GREEN}✅ Stack deployment complete!${NC}"

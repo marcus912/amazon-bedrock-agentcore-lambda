@@ -94,6 +94,9 @@ def _initialize_bedrock_client():
     Returns:
         boto3.client: Configured Bedrock AgentCore client
     """
+    # Read timeout from environment variable (default: 300 seconds = 5 minutes)
+    read_timeout = int(os.environ.get('BEDROCK_READ_TIMEOUT', '300'))
+
     # Configure with NO retries and strict timeouts to prevent infinite loops
     # Lambda timeout will handle failure scenarios
     client_config = Config(
@@ -102,7 +105,7 @@ def _initialize_bedrock_client():
             'mode': 'standard'
         },
         connect_timeout=10,  # 10 seconds to establish connection
-        read_timeout=300     # 5 minutes max for reading response
+        read_timeout=read_timeout
     )
 
     # Get region from environment or use default
@@ -117,7 +120,7 @@ def _initialize_bedrock_client():
 
     logger.info(
         f"Bedrock AgentCore client initialized: region={region}, "
-        f"connect_timeout=10s, read_timeout=300s, max_attempts=1 (no retries)"
+        f"connect_timeout=10s, read_timeout={read_timeout}s, max_attempts=1 (no retries)"
     )
     return client
 
