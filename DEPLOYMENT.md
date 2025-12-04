@@ -28,9 +28,9 @@ aws logs tail /aws/lambda/sqs-email-handler-dev --follow
 ```
 
 **Expected logs**:
-- Agent invocation STARTED (async)
-- Lambda completes in ~1-2s
-- Check GitHub for created issue (agent processes in background)
+- Agent invocation completed
+- Lambda completes in ~60-90s (waits for agent response)
+- Check GitHub for created issue
 
 ## Troubleshooting
 

@@ -4,7 +4,6 @@ AWS Lambda functions for Bedrock AgentCore workflows with AWS SAM.
 
 ## Features
 
-- **Async Agent Invocation**: Fire-and-forget pattern, Lambda returns in ~1-2s (vs 60-90s sync)
 - **SQS Email Handler**: SES emails → Bedrock agent → GitHub issues
 - Four-layer architecture (handler → domain → services → integrations)
 - Type-safe domain models
@@ -14,23 +13,16 @@ AWS Lambda functions for Bedrock AgentCore workflows with AWS SAM.
 ## System Flow
 
 ```
-Email → SES → S3 + SQS → Lambda (1-2s) → Bedrock Agent (60-90s, async) → GitHub Issue
-                           ↓
-                    Returns immediately
-                    SQS message deleted
+Email → SES → S3 + SQS → Lambda → Bedrock Agent (60-90s) → GitHub Issue
 ```
 
 **How it works**:
 1. SES receives email → saves to S3, notifies SQS
 2. Lambda triggered:
    - Fetches email from S3
-   - Starts Bedrock agent (async, fire-and-forget)
-   - Returns in ~1-2s, SQS message consumed
-3. Agent processes independently:
-   - Queries knowledge base
-   - Creates GitHub issue via MCP tools
-
-**Key benefit**: Lambda returns in 1-2s (vs 60-90s sync), SQS messages consumed immediately.
+   - Invokes Bedrock agent (waits for response)
+   - Agent queries knowledge base, creates GitHub issue
+   - Returns result, SQS message consumed
 
 ## Prerequisites
 
@@ -81,8 +73,8 @@ sam local invoke SQSEmailHandlerFunction -e tests/events/sqs-event.json
 
 **SQS Email Handler**:
 - Parses SES notification, fetches email from S3
-- Invokes Bedrock agent async (fire-and-forget)
-- Returns immediately, agent processes independently
+- Invokes Bedrock agent to create GitHub issue
+- Returns agent response, SQS message consumed
 
 **Monitor**:
 ```bash

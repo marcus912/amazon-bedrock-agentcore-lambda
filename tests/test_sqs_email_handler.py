@@ -66,14 +66,15 @@ class TestLambdaHandler:
     @patch('services.s3.s3_client')
     @patch('integrations.agentcore_invocation.bedrock_client')
     def test_lambda_handler_success(self, mock_bedrock_client, mock_s3_client, sqs_event, mock_context, sample_email_content):
-        """Test successful email processing with async agent invocation."""
+        """Test successful email processing with agent invocation."""
         # Mock S3 get_object
         mock_s3_client.get_object.return_value = {
             'Body': MagicMock(read=lambda: sample_email_content)
         }
 
-        # Mock Bedrock agent response (response stream should NOT be read in async mode)
+        # Mock Bedrock agent response (synchronous - response IS read)
         mock_response_stream = MagicMock()
+        mock_response_stream.read.return_value = json.dumps({'output': 'GitHub issue created'}).encode('utf-8')
         mock_bedrock_client.invoke_agent_runtime.return_value = {
             'response': mock_response_stream
         }
@@ -88,9 +89,6 @@ class TestLambdaHandler:
             Key='test-email-key'
         )
         mock_bedrock_client.invoke_agent_runtime.assert_called_once()
-
-        # CRITICAL: Verify response stream was NOT read (async behavior)
-        mock_response_stream.read.assert_not_called()
 
     @patch.dict(os.environ, {
         'AGENT_RUNTIME_ARN': 'arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/test-agent-ABC123'
@@ -162,7 +160,7 @@ class TestLambdaHandler:
     @patch('services.s3.s3_client')
     @patch('integrations.agentcore_invocation.bedrock_client')
     def test_lambda_handler_multiple_records(self, mock_bedrock_client, mock_s3_client, mock_context, sample_email_content):
-        """Test handler with multiple SQS records (async invocation)."""
+        """Test handler with multiple SQS records."""
         # Create event with 3 records
         multi_event = {
             "Records": [
@@ -191,11 +189,12 @@ class TestLambdaHandler:
             ]
         }
 
-        # Mock S3 and Bedrock (response should NOT be read in async mode)
+        # Mock S3 and Bedrock (synchronous - response IS read)
         mock_s3_client.get_object.return_value = {
             'Body': MagicMock(read=lambda: sample_email_content)
         }
         mock_response_stream = MagicMock()
+        mock_response_stream.read.return_value = json.dumps({'output': 'GitHub issue created'}).encode('utf-8')
         mock_bedrock_client.invoke_agent_runtime.return_value = {
             'response': mock_response_stream
         }
@@ -207,9 +206,6 @@ class TestLambdaHandler:
         assert result == {"batchItemFailures": []}
         assert mock_s3_client.get_object.call_count == 3
         assert mock_bedrock_client.invoke_agent_runtime.call_count == 3
-
-        # CRITICAL: Verify response stream was NOT read for any invocation
-        mock_response_stream.read.assert_not_called()
 
     @patch.dict(os.environ, {
         'AGENT_RUNTIME_ARN': 'arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/test-agent-ABC123'

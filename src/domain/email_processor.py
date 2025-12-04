@@ -62,7 +62,7 @@ class EmailProcessor:
             )
 
             agent_response = self._invoke_agent(metadata, email_content)
-            logger.info(f"Agent started: {agent_response}")
+            logger.info(f"Agent response: {agent_response[:200]}..." if len(agent_response) > 200 else f"Agent response: {agent_response}")
 
             self._log_processing_success(metadata, email_content, agent_response)
 
@@ -196,17 +196,14 @@ class EmailProcessor:
         content: EmailContent
     ) -> str:
         """
-        Invoke Bedrock agent asynchronously to create GitHub issue from email.
-
-        This method starts the agent invocation but does NOT wait for the response.
-        The Lambda function returns immediately while the agent continues processing.
+        Invoke Bedrock agent to create GitHub issue from email.
 
         Args:
             metadata: Email metadata
             content: Parsed email content
 
         Returns:
-            str: Confirmation message that agent was invoked asynchronously
+            str: Agent's response text
 
         Raises:
             Various exceptions from agent invocation (caught by caller)
@@ -216,21 +213,20 @@ class EmailProcessor:
             logger.warning("Email body is empty, skipping agent invocation")
             return "[Skipped] Email body is empty"
 
-        logger.info("Invoking Bedrock agent ASYNCHRONOUSLY to create GitHub issue from email...")
+        logger.info("Invoking Bedrock agent to create GitHub issue from email...")
         agent_start_time = time.time()
 
         # Load and format prompt template
         prompt = self._create_github_issue_prompt(metadata, content)
 
-        # Invoke agent ASYNCHRONOUSLY (fire-and-forget)
-        # Lambda will return immediately, agent continues processing in background
-        agent_response = agentcore_invocation.invoke_agent_async(
+        # Invoke agent (synchronous - waits for response)
+        agent_response = agentcore_invocation.invoke_agent(
             prompt=prompt,
             session_id=None  # New session for each email
         )
 
         agent_time = time.time() - agent_start_time
-        logger.info(f"Agent invocation started (async): {agent_time:.3f}s")
+        logger.info(f"Agent invocation completed: {agent_time:.3f}s")
 
         return agent_response
 
@@ -277,7 +273,7 @@ class EmailProcessor:
     ) -> None:
         """Log successful processing summary."""
         logger.info("=" * 50)
-        logger.info("EMAIL PROCESSED (ASYNC)")
+        logger.info("EMAIL PROCESSED SUCCESSFULLY")
         logger.info(f"From: {metadata.from_address}")
         logger.info(f"Subject: {metadata.subject}")
         logger.info(f"Attachments: {len(content.attachments)}")

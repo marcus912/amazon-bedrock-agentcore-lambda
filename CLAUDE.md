@@ -36,8 +36,7 @@ ENVIRONMENT=prod bin/deploy.sh
 ## Core Components
 
 **Agent Invocation** (`src/integrations/agentcore_invocation.py`):
-- `invoke_agent_async()`: Fire-and-forget (default), returns in ~1-2s
-- `invoke_agent()`: Sync mode (waits 60-90s for response)
+- `invoke_agent()`: Synchronous invocation (waits 60-90s for response)
 - Auto session ID generation, strict timeouts, no retries
 
 **Domain** (`src/domain/`):
@@ -52,16 +51,10 @@ ENVIRONMENT=prod bin/deploy.sh
 ```python
 from integrations import agentcore_invocation
 
-# Async (default) - returns in ~1-2s
-agentcore_invocation.invoke_agent_async(
-    prompt="Create GitHub issue...",
-    session_id=None
-)
-
-# Sync (optional) - waits 60-90s
+# Invoke agent (synchronous - waits 60-90s for response)
 response = agentcore_invocation.invoke_agent(
-    prompt="Summarize email...",
-    session_id=None
+    prompt="Create GitHub issue...",
+    session_id=None  # Auto-generated if not provided
 )
 ```
 
