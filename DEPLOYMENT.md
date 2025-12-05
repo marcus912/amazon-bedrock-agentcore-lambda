@@ -29,7 +29,7 @@ aws logs tail /aws/lambda/sqs-email-handler-dev --follow
 
 **Expected logs**:
 - Agent invocation completed
-- Lambda completes in ~60-90s (waits for agent response)
+- Lambda completes in up to 5 min (waits for agent response)
 - Check GitHub for created issue
 
 ## Troubleshooting
