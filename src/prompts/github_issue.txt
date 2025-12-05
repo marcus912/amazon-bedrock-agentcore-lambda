@@ -1,0 +1,37 @@
+**TASK**: Analyze the following bug report email and create a GitHub bug issue using your GitHub MCP tools.
+
+**BUG REPORT EMAIL**:
+From: {from_address}
+Subject: {subject}
+Received: {timestamp}
+
+Email Content:
+{body}
+
+**INSTRUCTIONS**:
+1. Query your knowledge base for "GitHub Bug Issue Guide for Linksys Products" to get:
+  - Issue template structure for the linksys/bugs repository
+  - Required fields (description, steps to reproduce, product SKU, firmware version)
+  - Bug category definitions (Firmware Bug, UI Bug)
+  - Title format and labeling conventions
+  - AI agent instructions for issue creation
+  - Also reference "Linksys SKUs.docx" to validate product model numbers
+  - If the guide is not found, respond with an error message
+
+2. Extract information from the email to populate required fields:
+  - Bug description
+  - Steps to reproduce
+  - Product name/model (validate against knowledge base)
+  - Firmware version
+  - Bug category (Firmware or UI)
+  - Expected vs actual behavior
+
+3. Validate completeness:
+  - If critical fields are missing, respond with an error listing what's missing and what was found
+  - Ensure product SKU is valid by checking knowledge base
+
+4. Follow the guide to create the GitHub issue
+
+5. Send the result to {from_address} using your email tool
+
+Please create the GitHub issue and send the confirmation email now using your MCP tools.

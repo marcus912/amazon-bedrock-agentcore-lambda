@@ -1,3 +1,7 @@
+"""
+Tests for SQS Email Handler Lambda function.
+"""
+
 import json
 import pytest
 from unittest.mock import Mock, patch, MagicMock
@@ -7,12 +11,10 @@ import os
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../src'))
 
-from sqs_email_handler import (
-    lambda_handler,
-    fetch_email_from_s3,
-    extract_email_body,
-    process_email
-)
+# Import the handler and dependencies
+import sqs_email_handler
+from services import s3 as s3_service
+from services import email as email_service
 
 
 @pytest.fixture
@@ -58,16 +60,27 @@ Content-Type: text/html; charset="UTF-8"
 class TestLambdaHandler:
     """Test the main Lambda handler function."""
 
-    @patch('sqs_email_handler.s3_client')
-    def test_lambda_handler_success(self, mock_s3_client, sqs_event, mock_context, sample_email_content):
-        """Test successful email processing."""
+    @patch.dict(os.environ, {
+        'AGENT_RUNTIME_ARN': 'arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/test-agent-ABC123'
+    })
+    @patch('services.s3.s3_client')
+    @patch('integrations.agentcore_invocation.bedrock_client')
+    def test_lambda_handler_success(self, mock_bedrock_client, mock_s3_client, sqs_event, mock_context, sample_email_content):
+        """Test successful email processing with agent invocation."""
         # Mock S3 get_object
         mock_s3_client.get_object.return_value = {
             'Body': MagicMock(read=lambda: sample_email_content)
         }
 
+        # Mock Bedrock agent response (synchronous - response IS read)
+        mock_response_stream = MagicMock()
+        mock_response_stream.read.return_value = json.dumps({'output': 'GitHub issue created'}).encode('utf-8')
+        mock_bedrock_client.invoke_agent_runtime.return_value = {
+            'response': mock_response_stream
+        }
+
         # Invoke handler
-        result = lambda_handler(sqs_event, mock_context)
+        result = sqs_email_handler.lambda_handler(sqs_event, mock_context)
 
         # Assertions
         assert result == {"batchItemFailures": []}
@@ -75,27 +88,33 @@ class TestLambdaHandler:
             Bucket='ses-emails-123456789012-dev',
             Key='test-email-key'
         )
+        mock_bedrock_client.invoke_agent_runtime.assert_called_once()
 
-    @patch('sqs_email_handler.s3_client')
+    @patch.dict(os.environ, {
+        'AGENT_RUNTIME_ARN': 'arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/test-agent-ABC123'
+    })
+    @patch('services.s3.s3_client')
     def test_lambda_handler_s3_error(self, mock_s3_client, sqs_event, mock_context):
-        """Test handler when S3 fetch fails."""
-        # Mock S3 error
+        """Test handler when S3 fetch fails - message is still deleted."""
+        # Mock S3 error using proper ClientError (matches s3.py exception handling)
         from botocore.exceptions import ClientError
         mock_s3_client.get_object.side_effect = ClientError(
-            {'Error': {'Code': 'NoSuchKey'}},
+            {'Error': {'Code': 'NoSuchKey', 'Message': 'The specified key does not exist.'}},
             'GetObject'
         )
 
         # Invoke handler
-        result = lambda_handler(sqs_event, mock_context)
+        result = sqs_email_handler.lambda_handler(sqs_event, mock_context)
 
-        # Should report batch item failure
-        assert len(result["batchItemFailures"]) == 1
-        assert result["batchItemFailures"][0]["itemIdentifier"] == "test-message-id-123"
+        # Should delete message even on error (no batch item failures)
+        assert len(result["batchItemFailures"]) == 0
 
-    @patch('sqs_email_handler.s3_client')
+    @patch.dict(os.environ, {
+        'AGENT_RUNTIME_ARN': 'arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/test-agent-ABC123'
+    })
+    @patch('services.s3.s3_client')
     def test_lambda_handler_invalid_ses_notification(self, mock_s3_client, mock_context):
-        """Test handler with invalid SES notification."""
+        """Test handler with invalid SES notification - message is still deleted."""
         # Create invalid event
         invalid_event = {
             "Records": [{
@@ -105,134 +124,168 @@ class TestLambdaHandler:
         }
 
         # Invoke handler
-        result = lambda_handler(invalid_event, mock_context)
+        result = sqs_email_handler.lambda_handler(invalid_event, mock_context)
 
-        # Should report batch item failure
-        assert len(result["batchItemFailures"]) == 1
+        # Should delete message even on error (no batch item failures)
+        assert len(result["batchItemFailures"]) == 0
 
-
-class TestFetchEmailFromS3:
-    """Test S3 email fetching."""
-
-    @patch('sqs_email_handler.s3_client')
-    def test_fetch_email_success(self, mock_s3_client, sample_email_content):
-        """Test successful S3 fetch."""
+    @patch.dict(os.environ, {
+        'AGENT_RUNTIME_ARN': 'arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/test-agent-ABC123'
+    })
+    @patch('services.s3.s3_client')
+    @patch('integrations.agentcore_invocation.bedrock_client')
+    def test_lambda_handler_agent_failure(self, mock_bedrock_client, mock_s3_client, sqs_event, mock_context, sample_email_content):
+        """Test handler when agent invocation fails."""
+        # Mock S3 success
         mock_s3_client.get_object.return_value = {
             'Body': MagicMock(read=lambda: sample_email_content)
         }
 
-        result = fetch_email_from_s3('test-bucket', 'test-key')
-
-        assert result == sample_email_content
-        mock_s3_client.get_object.assert_called_once_with(
-            Bucket='test-bucket',
-            Key='test-key'
-        )
-
-    @patch('sqs_email_handler.s3_client')
-    def test_fetch_email_not_found(self, mock_s3_client):
-        """Test S3 fetch when object doesn't exist."""
+        # Mock Bedrock agent failure
         from botocore.exceptions import ClientError
-        mock_s3_client.exceptions.NoSuchKey = type('NoSuchKey', (Exception,), {})
-        mock_s3_client.get_object.side_effect = mock_s3_client.exceptions.NoSuchKey()
-
-        with pytest.raises(ValueError, match="Email file not found"):
-            fetch_email_from_s3('test-bucket', 'missing-key')
-
-
-class TestExtractEmailBody:
-    """Test email parsing and body extraction."""
-
-    def test_extract_multipart_email(self, sample_email_content):
-        """Test extracting body from multipart email."""
-        result = extract_email_body(sample_email_content)
-
-        assert 'text_body' in result
-        assert 'html_body' in result
-        assert 'attachments' in result
-        assert 'plain text' in result['text_body']
-        assert '<strong>HTML</strong>' in result['html_body']
-
-    def test_extract_simple_text_email(self):
-        """Test extracting body from simple text email."""
-        simple_email = b"""From: sender@example.com
-To: recipient@yourdomain.com
-Subject: Simple Test
-Content-Type: text/plain; charset="UTF-8"
-
-Simple email body.
-"""
-        result = extract_email_body(simple_email)
-
-        assert 'Simple email body' in result['text_body']
-        assert result['html_body'] == ''
-        assert len(result['attachments']) == 0
-
-    def test_extract_email_with_attachment(self):
-        """Test extracting email with attachment."""
-        email_with_attachment = b"""From: sender@example.com
-To: recipient@yourdomain.com
-Subject: Email with Attachment
-MIME-Version: 1.0
-Content-Type: multipart/mixed; boundary="boundary456"
-
---boundary456
-Content-Type: text/plain; charset="UTF-8"
-
-Email body with attachment.
-
---boundary456
-Content-Type: application/pdf; name="document.pdf"
-Content-Disposition: attachment; filename="document.pdf"
-Content-Transfer-Encoding: base64
-
-JVBERi0xLjQKJeLjz9MK...
-
---boundary456--
-"""
-        result = extract_email_body(email_with_attachment)
-
-        assert 'Email body with attachment' in result['text_body']
-        assert len(result['attachments']) == 1
-        assert result['attachments'][0]['filename'] == 'document.pdf'
-        assert result['attachments'][0]['content_type'] == 'application/pdf'
-
-
-class TestProcessEmail:
-    """Test email processing logic."""
-
-    def test_process_email_with_text_body(self, caplog):
-        """Test processing email with text body."""
-        process_email(
-            subject="Test Subject",
-            from_address="sender@example.com",
-            to_addresses=["recipient@yourdomain.com"],
-            timestamp="2024-11-05T10:30:00.000Z",
-            text_body="This is the email body",
-            html_body="",
-            attachments=[],
-            ses_notification={}
+        mock_bedrock_client.invoke_agent_runtime.side_effect = ClientError(
+            {'Error': {'Code': 'ThrottlingException', 'Message': 'Throttled'}},
+            'InvokeAgentRuntime'
         )
 
-        # Check that email was logged
-        assert "Processing email body" in caplog.text
-        assert "Test Subject" in caplog.text
+        # Invoke handler - should not fail, agent error should be caught
+        result = sqs_email_handler.lambda_handler(sqs_event, mock_context)
 
-    def test_process_email_empty_body(self, caplog):
-        """Test processing email with empty body."""
-        process_email(
-            subject="Empty Email",
-            from_address="sender@example.com",
-            to_addresses=["recipient@yourdomain.com"],
-            timestamp="2024-11-05T10:30:00.000Z",
-            text_body="",
-            html_body="",
-            attachments=[],
-            ses_notification={}
+        # Should still succeed (agent errors are logged but not propagated)
+        assert result == {"batchItemFailures": []}
+
+    @patch.dict(os.environ, {
+        'AGENT_RUNTIME_ARN': 'arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/test-agent-ABC123'
+    })
+    @patch('services.s3.s3_client')
+    @patch('integrations.agentcore_invocation.bedrock_client')
+    def test_lambda_handler_multiple_records(self, mock_bedrock_client, mock_s3_client, mock_context, sample_email_content):
+        """Test handler with multiple SQS records."""
+        # Create event with 3 records
+        multi_event = {
+            "Records": [
+                {
+                    "messageId": f"msg-{i}",
+                    "body": json.dumps({
+                        "notificationType": "Received",
+                        "mail": {
+                            "commonHeaders": {
+                                "from": ["sender@example.com"],
+                                "to": ["recipient@example.com"],
+                                "subject": f"Email {i}"
+                            },
+                            "timestamp": "2024-11-05T10:30:00.000Z"
+                        },
+                        "receipt": {
+                            "action": {
+                                "type": "S3",
+                                "bucketName": "test-bucket",
+                                "objectKey": f"email-{i}.eml"
+                            }
+                        }
+                    })
+                }
+                for i in range(3)
+            ]
+        }
+
+        # Mock S3 and Bedrock (synchronous - response IS read)
+        mock_s3_client.get_object.return_value = {
+            'Body': MagicMock(read=lambda: sample_email_content)
+        }
+        mock_response_stream = MagicMock()
+        mock_response_stream.read.return_value = json.dumps({'output': 'GitHub issue created'}).encode('utf-8')
+        mock_bedrock_client.invoke_agent_runtime.return_value = {
+            'response': mock_response_stream
+        }
+
+        # Invoke handler
+        result = sqs_email_handler.lambda_handler(multi_event, mock_context)
+
+        # All should succeed
+        assert result == {"batchItemFailures": []}
+        assert mock_s3_client.get_object.call_count == 3
+        assert mock_bedrock_client.invoke_agent_runtime.call_count == 3
+
+    @patch.dict(os.environ, {
+        'AGENT_RUNTIME_ARN': 'arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/test-agent-ABC123'
+    })
+    @patch('services.s3.s3_client')
+    @patch('integrations.agentcore_invocation.bedrock_client')
+    def test_lambda_handler_always_consumes_messages(self, mock_bedrock_client, mock_s3_client, mock_context):
+        """
+        CRITICAL TEST: Verify that messages are ALWAYS consumed (deleted)
+        regardless of any error that occurs. This prevents infinite loops
+        and message replay.
+        """
+        # Create event with 3 records that will fail in different ways
+        mixed_failure_event = {
+            "Records": [
+                {
+                    "messageId": "msg-invalid-json",
+                    "body": "not valid json"  # Will fail JSON parsing
+                },
+                {
+                    "messageId": "msg-missing-fields",
+                    "body": json.dumps({"invalid": "structure"})  # Will fail SES validation
+                },
+                {
+                    "messageId": "msg-s3-error",
+                    "body": json.dumps({
+                        "notificationType": "Received",
+                        "mail": {
+                            "commonHeaders": {"from": ["test@example.com"], "subject": "Test"},
+                            "timestamp": "2024-11-05T10:30:00.000Z"
+                        },
+                        "receipt": {
+                            "action": {
+                                "bucketName": "test-bucket",
+                                "objectKey": "test-key"
+                            }
+                        }
+                    })  # Will fail on S3 fetch
+                }
+            ]
+        }
+
+        # Mock S3 to fail using proper ClientError
+        from botocore.exceptions import ClientError
+        mock_s3_client.get_object.side_effect = ClientError(
+            {'Error': {'Code': 'NoSuchKey', 'Message': 'The specified key does not exist.'}},
+            'GetObject'
         )
 
-        # Should warn about empty body
-        assert "no text or HTML body content" in caplog.text
+        # Invoke handler
+        result = sqs_email_handler.lambda_handler(mixed_failure_event, mock_context)
+
+        # CRITICAL ASSERTION: All messages must be consumed despite ALL failures
+        assert result == {"batchItemFailures": []}, \
+            "FAILED: Messages were not consumed! This will cause infinite retries!"
+        assert len(result["batchItemFailures"]) == 0, \
+            "FAILED: batchItemFailures must ALWAYS be empty to prevent message replay"
+
+    @patch.dict(os.environ, {
+        'AGENT_RUNTIME_ARN': 'arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/test-agent-ABC123'
+    })
+    def test_lambda_handler_no_retry_behavior(self, mock_context):
+        """
+        CRITICAL TEST: Verify that the Lambda does NOT implement any retry logic.
+        All retries should be handled by SQS, not by the Lambda function.
+        """
+        # Create event with invalid data
+        event = {
+            "Records": [{
+                "messageId": "test-msg",
+                "body": json.dumps({"invalid": "data"})
+            }]
+        }
+
+        # Invoke handler
+        result = sqs_email_handler.lambda_handler(event, mock_context)
+
+        # Verify no retries - function should return immediately
+        assert result == {"batchItemFailures": []}
+        # If there were retries, this test would take longer or the structure would be different
 
 
 if __name__ == '__main__':

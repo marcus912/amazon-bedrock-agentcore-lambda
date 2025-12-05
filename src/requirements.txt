@@ -1,11 +1,10 @@
 # Lambda Runtime Dependencies
 #
-# Note: boto3 and botocore are already included in AWS Lambda Python 3.12 runtime.
-# This file is kept empty as no additional runtime dependencies are currently needed.
+# Note: boto3 and botocore are included in AWS Lambda Python runtime.
+# However, we need specific versions for Bedrock Agent Runtime support.
 #
-# Add packages here when your Lambda code needs them:
-# requests>=2.31.0
-# pydantic>=2.0.0
-# pandas>=2.0.0
-#
+# Bedrock Agent Runtime support (requires boto3 >= 1.34.0)
+boto3>=1.34.0
+botocore>=1.34.0
+
 # For development/testing dependencies, see ../requirements-dev.txt

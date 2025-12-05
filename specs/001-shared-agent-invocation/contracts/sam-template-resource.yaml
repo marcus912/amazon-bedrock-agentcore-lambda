@@ -27,13 +27,13 @@ AgentCoreInvocationFunction:
     Policies:
       - Version: '2012-10-17'
         Statement:
-          # Bedrock Agent Invocation
+          # Bedrock AgentCore Invocation (uses bedrock-agentcore client)
+          # Note: Wildcard pattern allows access to runtime-endpoint sub-resources
           - Effect: Allow
             Action:
-              - bedrock:InvokeAgent
+              - bedrock-agentcore:InvokeAgentRuntime
             Resource:
-              - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:agent/*'
-              - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:agent-alias/*'
+              - !Sub 'arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:runtime/*'
 
           # CloudWatch Logs
           - Effect: Allow

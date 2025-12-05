@@ -1,29 +1,62 @@
-# amazon-bedrock-agentcore-lambda Development Guidelines
+# Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2025-11-11
+## Stack
 
-## Active Technologies
+- Python 3.13, boto3>=1.34.0, AWS SAM, uv
+- Four-layer architecture: handler → domain → services → integrations
+- Type-safe dataclasses
 
-- Python 3.13 (consistent with existing Lambda functions in template.yaml) + boto3 (AWS SDK for Python with Bedrock Agent Runtime), botocore (AWS service definitions), managed by uv package manager (001-shared-agent-invocation)
+## Architecture
 
-## Project Structure
+**Layers**:
+1. **Handler**: Thin orchestration
+2. **Domain**: Business logic + type-safe models
+3. **Services**: Utilities (email, S3, prompts)
+4. **Integrations**: External APIs (Bedrock)
 
-```text
-src/
-tests/
-```
+**Key patterns**:
+- Type-safe models (dataclasses)
+- Module-level boto3 clients (thread-safe, reused)
+- Fail-fast (NO retries, strict timeouts)
+- Always consume SQS messages (empty batchItemFailures)
 
 ## Commands
 
-cd src [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECHNOLOGIES] pytest [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECHNOLOGIES] ruff check .
+```bash
+# Dev
+uv sync                      # Install
+uv run pytest               # Test
+uv run ruff check .         # Lint
 
-## Code Style
+# Deploy
+bin/deploy.sh               # Deploy to dev
+ENVIRONMENT=prod bin/deploy.sh
+```
 
-Python 3.13 (consistent with existing Lambda functions in template.yaml): Follow standard conventions
+## Core Components
 
-## Recent Changes
+**Agent Invocation** (`src/integrations/agentcore_invocation.py`):
+- `invoke_agent()`: Synchronous invocation (waits 60-90s for response)
+- Auto session ID generation, strict timeouts, no retries
 
-- 001-shared-agent-invocation: Added Python 3.13 (consistent with existing Lambda functions in template.yaml) + boto3 (AWS SDK for Python with Bedrock Agent Runtime), botocore (AWS service definitions), managed by uv package manager
+**Domain** (`src/domain/`):
+- `EmailProcessor`: Main business logic
+- Type-safe models: `EmailMetadata`, `EmailContent`, `ProcessingResult`
+
+**Services** (`src/services/`):
+- Email parsing, S3 operations, prompt management (cache → S3 → filesystem)
+
+## Usage
+
+```python
+from integrations import agentcore_invocation
+
+# Invoke agent (synchronous - waits 60-90s for response)
+response = agentcore_invocation.invoke_agent(
+    prompt="Create GitHub issue...",
+    session_id=None  # Auto-generated if not provided
+)
+```
 
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->
