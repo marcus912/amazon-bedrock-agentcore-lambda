@@ -36,7 +36,7 @@ ENVIRONMENT=prod bin/deploy.sh
 ## Core Components
 
 **Agent Invocation** (`src/integrations/agentcore_invocation.py`):
-- `invoke_agent()`: Synchronous invocation (waits 60-90s for response)
+- `invoke_agent()`: Synchronous invocation (waits up to 5 min, configurable)
 - Auto session ID generation, strict timeouts, no retries
 
 **Domain** (`src/domain/`):
@@ -51,7 +51,7 @@ ENVIRONMENT=prod bin/deploy.sh
 ```python
 from integrations import agentcore_invocation
 
-# Invoke agent (synchronous - waits 60-90s for response)
+# Invoke agent (synchronous - waits up to 5 min for response)
 response = agentcore_invocation.invoke_agent(
     prompt="Create GitHub issue...",
     session_id=None  # Auto-generated if not provided
