@@ -50,10 +50,12 @@ def extract_email_body(email_content: bytes) -> Dict[str, Any]:
             if "attachment" in content_disposition:
                 filename = part.get_filename()
                 if filename:
+                    content = part.get_payload(decode=True) or b''
                     result['attachments'].append({
                         'filename': filename,
                         'content_type': content_type,
-                        'size': len(part.get_payload(decode=True) or b'')
+                        'size': len(content),
+                        'content': content  # Include binary content for upload
                     })
 
             # Extract text body (skip if already found or if it's part of multipart/alternative container)

@@ -8,6 +8,9 @@ Received: {timestamp}
 Email Content:
 {body}
 
+Attachments:
+{attachments}
+
 **INSTRUCTIONS**:
 1. Query your knowledge base for "GitHub Bug Issue Guide for Linksys Products" to get:
   - Issue template structure for the linksys/bugs repository

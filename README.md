@@ -5,6 +5,7 @@ AWS Lambda functions for Bedrock AgentCore workflows with AWS SAM.
 ## Features
 
 - **SQS Email Handler**: SES emails → Bedrock agent → GitHub issues
+- **Email Attachments**: Extract and upload attachments to S3/CloudFront for GitHub issue embedding
 - Four-layer architecture (handler → domain → services → integrations)
 - Type-safe domain models (dataclasses)
 - Multi-environment support (dev, staging, prod)
@@ -40,7 +41,9 @@ uv sync --extra dev
 cp .env.example .env
 
 # 3. Deploy
-bin/deploy.sh
+bin/deploy.sh                # Deploy using .env (default)
+bin/deploy.sh .env.qa        # Deploy using .env.qa
+bin/deploy.sh .env.prod      # Deploy using .env.prod
 ```
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for details.
@@ -113,6 +116,11 @@ Environments: `dev`, `staging`, `prod` (edit `samconfig.toml`)
 **Optional**:
 - `BEDROCK_READ_TIMEOUT`: Agent timeout in seconds (default: 300 = 5 min)
 - `PROMPT_CACHE_TTL`: Prompt cache TTL in seconds (default: 300)
+
+**Attachments** (optional - for email attachment uploads):
+- `ATTACHMENTS_S3_BUCKET`: S3 bucket for storing attachments
+- `ATTACHMENTS_CLOUDFRONT_DOMAIN`: CloudFront domain for public URLs
+- `ATTACHMENT_MAX_SIZE_MB`: Max file size in MB (default: 20)
 
 ## Troubleshooting
 

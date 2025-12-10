@@ -20,6 +20,15 @@ capabilities = "CAPABILITY_IAM"
 confirm_changeset = false
 resolve_s3 = true
 
+[qa]
+[qa.deploy]
+[qa.deploy.parameters]
+stack_name = "bedrock-agentcore-lambda-qa"
+parameter_overrides = "Environment=\"qa\" AgentRuntimeArn=\"\" SESEmailBucketName=\"\" SQSQueueArn=\"\""
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = false
+resolve_s3 = true
+
 [staging]
 [staging.deploy]
 [staging.deploy.parameters]

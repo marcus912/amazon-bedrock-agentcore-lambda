@@ -8,7 +8,7 @@ Parameters:
     Default: dev
     AllowedValues:
       - dev
-      - staging
+      - qa
       - prod
     Description: Environment name
 
@@ -34,6 +34,26 @@ Parameters:
     MaxValue: 900
     Description: Bedrock agent read timeout in seconds (default 300 = 5 minutes)
 
+  AttachmentsS3Bucket:
+    Type: String
+    Default: ""
+    Description: S3 bucket for storing email attachments (optional)
+
+  AttachmentsCloudFrontDomain:
+    Type: String
+    Default: ""
+    Description: CloudFront domain for attachment URLs (optional)
+
+  AttachmentMaxSizeMB:
+    Type: Number
+    Default: 20
+    MinValue: 1
+    MaxValue: 100
+    Description: Maximum attachment file size in MB (default 20)
+
+Conditions:
+  HasAttachmentsBucket: !Not [!Equals [!Ref AttachmentsS3Bucket, ""]]
+
 Globals:
   Function:
     Timeout: 300  # 5 minutes - adjust in template if needed
@@ -48,6 +68,9 @@ Globals:
         PROMPT_BUCKET: !Ref SESEmailBucketName
         PROMPT_KEY_PREFIX: "prompts/"
         PROMPT_CACHE_TTL: "300"  # Prompt cache TTL in seconds (5 minutes)
+        ATTACHMENTS_S3_BUCKET: !Ref AttachmentsS3Bucket
+        ATTACHMENTS_CLOUDFRONT_DOMAIN: !Ref AttachmentsCloudFrontDomain
+        ATTACHMENT_MAX_SIZE_MB: !Ref AttachmentMaxSizeMB
 
 Resources:
   # SQS Email Handler Lambda Function
@@ -78,6 +101,15 @@ Resources:
               Action:
                 - s3:GetObject
               Resource: !Sub arn:aws:s3:::${SESEmailBucketName}/*
+
+            # S3 - Write attachments to attachments bucket (if configured)
+            - !If
+              - HasAttachmentsBucket
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub arn:aws:s3:::${AttachmentsS3Bucket}/*
+              - !Ref AWS::NoValue
 
             # SQS - Receive and process messages
             - Effect: Allow

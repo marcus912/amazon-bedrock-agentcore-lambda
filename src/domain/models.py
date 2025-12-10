@@ -4,8 +4,47 @@ Data models for email processing domain.
 These type-safe data structures define clear contracts between components.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
+
+
+@dataclass
+class Attachment:
+    """
+    Email attachment with content and optional URL.
+
+    Attributes:
+        filename: Original filename
+        content_type: MIME type (e.g., "image/png", "application/pdf")
+        size: Size in bytes
+        content: Binary content (may be None if not extracted)
+        url: Public URL after upload (None until uploaded)
+    """
+    filename: str
+    content_type: str
+    size: int
+    content: Optional[bytes] = None
+    url: Optional[str] = None
+
+    @property
+    def is_image(self) -> bool:
+        """Check if attachment is an image."""
+        return self.content_type.lower().startswith('image/')
+
+    def to_dict_for_agent(self) -> Dict[str, Any]:
+        """
+        Convert to dict format for agent payload.
+
+        Returns:
+            Dict with filename, content_type, and url (if available)
+        """
+        result = {
+            'filename': self.filename,
+            'content_type': self.content_type,
+        }
+        if self.url:
+            result['url'] = self.url
+        return result
 
 
 @dataclass
@@ -39,11 +78,11 @@ class EmailContent:
     Attributes:
         text_body: Plain text body (empty string if not present)
         html_body: HTML body (empty string if not present)
-        attachments: List of attachment metadata dicts
+        attachments: List of Attachment objects
     """
     text_body: str
     html_body: str
-    attachments: List[Dict[str, Any]]
+    attachments: List[Attachment] = field(default_factory=list)
 
     @property
     def body_for_agent(self) -> str:
@@ -61,6 +100,22 @@ class EmailContent:
     def has_content(self) -> bool:
         """Check if email has any body content."""
         return bool(self.text_body or self.html_body)
+
+    @property
+    def attachments_with_urls(self) -> List[Attachment]:
+        """Get attachments that have been uploaded and have URLs."""
+        return [a for a in self.attachments if a.url]
+
+    def attachments_for_agent(self) -> List[Dict[str, Any]]:
+        """
+        Get attachments formatted for agent payload.
+
+        Only includes attachments that have URLs.
+
+        Returns:
+            List of dicts with filename, content_type, and url
+        """
+        return [a.to_dict_for_agent() for a in self.attachments_with_urls]
 
 
 @dataclass
