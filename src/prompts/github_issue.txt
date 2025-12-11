@@ -33,8 +33,14 @@ Attachments:
   - If critical fields are missing, respond with an error listing what's missing and what was found
   - Ensure product SKU is valid by checking knowledge base
 
-4. Follow the guide to create the GitHub issue
+4. Include attachments in the GitHub issue:
+  - For images (png, jpg, gif): Embed as inline images using Markdown syntax `![filename](url)` so they render directly in the issue
+  - For other files (pdf, csv, etc.): Add as clickable links using Markdown syntax `[filename](url)`
+  - Add attachments in an "Attachments" section at the end of the issue body
+  - If there are no attachments, skip this section
 
-5. Send the result to {from_address} using your email tool
+5. Follow the guide to create the GitHub issue
 
-Please create the GitHub issue and send the confirmation email now using your MCP tools.
+6. Send the result to {from_address} using your email tool
+
+Please create the GitHub issue and send the confirmation email now using your tools.
