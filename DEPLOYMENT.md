@@ -33,6 +33,53 @@ aws logs tail /aws/lambda/sqs-email-handler-dev --follow
 - Lambda completes in up to 5 min (waits for agent response)
 - Check GitHub for created issue
 
+## Multi-Environment Deployment
+
+Each environment is fully isolated with its own CloudFormation stack.
+
+### Environment Isolation
+
+| Resource | Naming Pattern |
+|----------|----------------|
+| CloudFormation Stack | `bedrock-agentcore-lambda-{env}` |
+| Lambda Function | `sqs-email-handler-{env}` |
+| IAM Role | Auto-generated per stack |
+| S3 Deployment Prefix | `bedrock-agentcore-lambda-{env}` |
+| S3 Attachment Path | `attachments/{env}/{message-id}/` |
+
+### Setting Up a New Environment
+
+1. **Create env file** (e.g., `.env.qa`):
+   ```bash
+   cp .env.example .env.qa
+   # Edit with environment-specific values
+   ```
+
+2. **Ensure SQS visibility timeout >= Lambda timeout** (300s):
+   ```bash
+   # Check current timeout
+   aws sqs get-queue-attributes \
+     --queue-url https://sqs.us-west-2.amazonaws.com/ACCOUNT/QUEUE_NAME \
+     --attribute-names VisibilityTimeout
+
+   # Update if needed (360s recommended)
+   aws sqs set-queue-attributes \
+     --queue-url https://sqs.us-west-2.amazonaws.com/ACCOUNT/QUEUE_NAME \
+     --attributes VisibilityTimeout=360
+   ```
+
+3. **Deploy**:
+   ```bash
+   bin/deploy.sh .env.qa
+   ```
+
+### Supported Environments
+
+- `dev` - Development (default)
+- `qa` - Quality Assurance
+- `staging` - Pre-production
+- `prod` - Production (requires changeset confirmation)
+
 ## Troubleshooting
 
 **Agent fails**:
