@@ -52,9 +52,14 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for details.
 
 Prompts load from: Cache → S3 (if set) → Local filesystem (always works)
 
+S3 path: `s3://{bucket}/prompts/{env}/github_issue.txt`
+
 ```bash
 # Update via S3 (no redeploy)
-bin/update-prompts.sh
+bin/update-prompts.sh              # Upload all prompts to dev
+bin/update-prompts.sh qa           # Upload all prompts to qa
+bin/update-prompts.sh all          # Upload all prompts to ALL environments
+bin/update-prompts.sh prod github_issue.txt  # Upload specific to prod
 
 # Or redeploy with new prompts
 bin/deploy.sh

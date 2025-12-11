@@ -46,6 +46,7 @@ Each environment is fully isolated with its own CloudFormation stack.
 | IAM Role | Auto-generated per stack |
 | S3 Deployment Prefix | `bedrock-agentcore-lambda-{env}` |
 | S3 Attachment Path | `attachments/{env}/{message-id}/` |
+| S3 Prompt Path | `prompts/{env}/{prompt-name}` |
 
 ### Setting Up a New Environment
 

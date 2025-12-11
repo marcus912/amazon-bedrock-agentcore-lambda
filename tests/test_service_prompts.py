@@ -41,6 +41,7 @@ class TestLoadFromS3:
 
     @patch('services.prompts.PROMPT_BUCKET', 'test-bucket')
     @patch('services.prompts.PROMPT_KEY_PREFIX', 'prompts/')
+    @patch('services.prompts.ENVIRONMENT', 'test')
     @patch('services.prompts.s3_client')
     def test_load_from_s3_success(self, mock_s3):
         """Test successful prompt load from S3."""
@@ -56,7 +57,7 @@ class TestLoadFromS3:
         assert result == 'Test prompt from S3'
         mock_s3.get_object.assert_called_once_with(
             Bucket='test-bucket',
-            Key='prompts/github_issue.txt'
+            Key='prompts/test/github_issue.txt'
         )
 
     @patch('services.prompts.PROMPT_BUCKET', None)

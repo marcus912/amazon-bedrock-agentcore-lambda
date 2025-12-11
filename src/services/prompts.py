@@ -44,6 +44,7 @@ logger.info("Prompts S3 client initialized with timeouts: connect=10s, read=30s,
 # Configuration from environment variables
 PROMPT_BUCKET = os.environ.get('PROMPT_BUCKET')
 PROMPT_KEY_PREFIX = os.environ.get('PROMPT_KEY_PREFIX', 'prompts/')
+ENVIRONMENT = os.environ.get('ENVIRONMENT', 'dev')
 
 # Path to prompts directory (relative to this file)
 # src/services/prompts.py -> src/prompts/
@@ -91,7 +92,8 @@ def _load_from_s3(prompt_name: str) -> str:
     if not PROMPT_BUCKET:
         raise ValueError("PROMPT_BUCKET environment variable not set")
 
-    s3_key = f"{PROMPT_KEY_PREFIX}{prompt_name}"
+    # Include environment in S3 path: prompts/{env}/{prompt_name}
+    s3_key = f"{PROMPT_KEY_PREFIX}{ENVIRONMENT}/{prompt_name}"
     logger.info(f"Loading prompt from S3: s3://{PROMPT_BUCKET}/{s3_key}")
 
     response = s3_client.get_object(

@@ -1,8 +1,10 @@
 #!/bin/bash
 # Upload prompts to S3
-# Usage: bin/update-prompts.sh [prompt-file]
-#        bin/update-prompts.sh              # Upload all prompts
-#        bin/update-prompts.sh github_issue.txt  # Upload specific prompt
+# Usage: bin/update-prompts.sh [env] [prompt-file]
+#        bin/update-prompts.sh                      # Upload all prompts to dev
+#        bin/update-prompts.sh qa                   # Upload all prompts to qa
+#        bin/update-prompts.sh all                  # Upload all prompts to ALL environments
+#        bin/update-prompts.sh prod github_issue.txt  # Upload specific prompt to prod
 
 set -e  # Exit on error
 
@@ -24,9 +26,29 @@ fi
 echo -e "${GREEN}📦 Loading configuration from .env...${NC}"
 export $(grep -v '^#' .env | grep -v '^$' | xargs)
 
+# Parse arguments
+# First arg: environment (dev, qa, prod, all) - default: dev
+# Second arg: specific prompt file (optional)
+ENVIRONMENT="${1:-dev}"
+ALL_ENVIRONMENTS="dev qa prod"
+
+# Validate environment
+if [[ ! "$ENVIRONMENT" =~ ^(dev|qa|prod|all)$ ]]; then
+    # If first arg is not an env, treat it as a prompt file (backward compat)
+    if [ -f "src/prompts/$1" ]; then
+        PROMPT_FILE="$1"
+        ENVIRONMENT="dev"
+    else
+        echo -e "${RED}❌ Error: Invalid environment '$ENVIRONMENT'${NC}"
+        echo "   Valid environments: dev, qa, prod, all"
+        exit 1
+    fi
+else
+    PROMPT_FILE="$2"
+fi
+
 # Configuration
 S3_BUCKET="${SES_EMAIL_BUCKET_NAME}"
-S3_PREFIX="prompts/"
 PROMPTS_DIR="src/prompts/"
 
 # Validate bucket name
@@ -36,8 +58,12 @@ if [ -z "$S3_BUCKET" ]; then
 fi
 
 echo -e "${GREEN}✅ Configuration loaded:${NC}"
+if [ "$ENVIRONMENT" = "all" ]; then
+    echo "   Environments: $ALL_ENVIRONMENTS"
+else
+    echo "   Environment: $ENVIRONMENT"
+fi
 echo "   S3 Bucket: $S3_BUCKET"
-echo "   S3 Prefix: $S3_PREFIX"
 echo "   Local Dir: $PROMPTS_DIR"
 echo ""
 
@@ -47,13 +73,14 @@ if [ ! -d "$PROMPTS_DIR" ]; then
     exit 1
 fi
 
-# Function to upload a single prompt
-upload_prompt() {
+# Function to upload a single prompt to a specific environment
+upload_prompt_to_env() {
     local file=$1
+    local env=$2
     local filename=$(basename "$file")
-    local s3_key="${S3_PREFIX}${filename}"
+    local s3_key="prompts/${env}/${filename}"
 
-    echo -e "${GREEN}📤 Uploading: ${filename}${NC}"
+    echo -e "${GREEN}📤 Uploading: ${filename} -> ${env}${NC}"
     echo "   Local:  $file"
     echo "   S3:     s3://${S3_BUCKET}/${s3_key}"
 
@@ -69,34 +96,59 @@ upload_prompt() {
     fi
 }
 
-# Upload prompts
-if [ -n "$1" ]; then
-    # Upload specific prompt
-    PROMPT_FILE="${PROMPTS_DIR}$1"
+# Function to upload prompts to one or all environments
+upload_prompts() {
+    local envs_to_upload="$1"
+    local specific_file="$2"
 
-    if [ ! -f "$PROMPT_FILE" ]; then
-        echo -e "${RED}❌ Error: Prompt file not found: $PROMPT_FILE${NC}"
+    for env in $envs_to_upload; do
+        echo -e "${GREEN}🚀 Uploading to ${env}...${NC}"
+        echo ""
+
+        if [ -n "$specific_file" ]; then
+            # Upload specific prompt
+            upload_prompt_to_env "$specific_file" "$env"
+            echo ""
+        else
+            # Upload all prompts
+            PROMPT_COUNT=0
+            for file in ${PROMPTS_DIR}*.txt; do
+                if [ -f "$file" ]; then
+                    upload_prompt_to_env "$file" "$env"
+                    echo ""
+                    PROMPT_COUNT=$((PROMPT_COUNT + 1))
+                fi
+            done
+
+            if [ $PROMPT_COUNT -eq 0 ]; then
+                echo -e "${YELLOW}⚠️  No .txt files found in $PROMPTS_DIR${NC}"
+                exit 1
+            fi
+        fi
+    done
+}
+
+# Upload prompts
+if [ -n "$PROMPT_FILE" ]; then
+    # Upload specific prompt
+    PROMPT_PATH="${PROMPTS_DIR}${PROMPT_FILE}"
+
+    if [ ! -f "$PROMPT_PATH" ]; then
+        echo -e "${RED}❌ Error: Prompt file not found: $PROMPT_PATH${NC}"
         exit 1
     fi
 
-    upload_prompt "$PROMPT_FILE"
+    if [ "$ENVIRONMENT" = "all" ]; then
+        upload_prompts "$ALL_ENVIRONMENTS" "$PROMPT_PATH"
+    else
+        upload_prompts "$ENVIRONMENT" "$PROMPT_PATH"
+    fi
 else
     # Upload all prompts
-    echo -e "${GREEN}🚀 Uploading all prompts...${NC}"
-    echo ""
-
-    PROMPT_COUNT=0
-    for file in ${PROMPTS_DIR}*.txt; do
-        if [ -f "$file" ]; then
-            upload_prompt "$file"
-            echo ""
-            PROMPT_COUNT=$((PROMPT_COUNT + 1))
-        fi
-    done
-
-    if [ $PROMPT_COUNT -eq 0 ]; then
-        echo -e "${YELLOW}⚠️  No .txt files found in $PROMPTS_DIR${NC}"
-        exit 1
+    if [ "$ENVIRONMENT" = "all" ]; then
+        upload_prompts "$ALL_ENVIRONMENTS" ""
+    else
+        upload_prompts "$ENVIRONMENT" ""
     fi
 fi
 
@@ -104,10 +156,15 @@ echo ""
 echo -e "${GREEN}✅ Prompt upload complete!${NC}"
 echo ""
 echo -e "${YELLOW}📋 View uploaded prompts:${NC}"
-echo "   aws s3 ls s3://${S3_BUCKET}/${S3_PREFIX}"
+if [ "$ENVIRONMENT" = "all" ]; then
+    echo "   aws s3 ls s3://${S3_BUCKET}/prompts/ --recursive"
+else
+    echo "   aws s3 ls s3://${S3_BUCKET}/prompts/${ENVIRONMENT}/"
+fi
 echo ""
 echo -e "${YELLOW}📥 Download a prompt:${NC}"
-echo "   aws s3 cp s3://${S3_BUCKET}/${S3_PREFIX}github_issue.txt -"
-echo ""
-echo -e "${YELLOW}🔄 List versions (if versioning enabled):${NC}"
-echo "   aws s3api list-object-versions --bucket ${S3_BUCKET} --prefix ${S3_PREFIX}"
+if [ "$ENVIRONMENT" = "all" ]; then
+    echo "   aws s3 cp s3://${S3_BUCKET}/prompts/dev/github_issue.txt -"
+else
+    echo "   aws s3 cp s3://${S3_BUCKET}/prompts/${ENVIRONMENT}/github_issue.txt -"
+fi
