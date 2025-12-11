@@ -73,6 +73,67 @@ Globals:
         ATTACHMENT_MAX_SIZE_MB: !Ref AttachmentMaxSizeMB
 
 Resources:
+  # IAM Role for SQS Email Handler Lambda Function
+  SQSEmailHandlerFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub sqs-email-handler-role-${Environment}
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub sqs-email-handler-policy-${Environment}
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # S3 - Read emails from existing bucket
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub arn:aws:s3:::${SESEmailBucketName}/*
+
+              # S3 - Write attachments to attachments bucket (if configured)
+              - !If
+                - HasAttachmentsBucket
+                - Effect: Allow
+                  Action:
+                    - s3:PutObject
+                  Resource: !Sub arn:aws:s3:::${AttachmentsS3Bucket}/*
+                - !Ref AWS::NoValue
+
+              # SQS - Receive and process messages
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                Resource: !Ref SQSQueueArn
+
+              # Bedrock - Invoke AgentCore agents
+              - Effect: Allow
+                Action:
+                  - bedrock-agentcore:InvokeAgentRuntime
+                Resource: !Sub '${AgentRuntimeArn}/*'
+
+              # CloudWatch Logs
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+              # X-Ray Tracing
+              - Effect: Allow
+                Action:
+                  - xray:PutTraceSegments
+                  - xray:PutTelemetryRecords
+                Resource: '*'
+
   # SQS Email Handler Lambda Function
   SQSEmailHandlerFunction:
     Type: AWS::Serverless::Function
@@ -81,6 +142,7 @@ Resources:
       CodeUri: src/
       Handler: sqs_email_handler.lambda_handler
       Description: Process emails from SES via SQS with Bedrock agent
+      Role: !GetAtt SQSEmailHandlerFunctionRole.Arn
 
       # SQS Event Source
       Events:
@@ -91,54 +153,6 @@ Resources:
             BatchSize: 10
             FunctionResponseTypes:
               - ReportBatchItemFailures
-
-      # IAM Permissions
-      Policies:
-        - Version: '2012-10-17'
-          Statement:
-            # S3 - Read emails from existing bucket
-            - Effect: Allow
-              Action:
-                - s3:GetObject
-              Resource: !Sub arn:aws:s3:::${SESEmailBucketName}/*
-
-            # S3 - Write attachments to attachments bucket (if configured)
-            - !If
-              - HasAttachmentsBucket
-              - Effect: Allow
-                Action:
-                  - s3:PutObject
-                Resource: !Sub arn:aws:s3:::${AttachmentsS3Bucket}/*
-              - !Ref AWS::NoValue
-
-            # SQS - Receive and process messages
-            - Effect: Allow
-              Action:
-                - sqs:ReceiveMessage
-                - sqs:DeleteMessage
-                - sqs:GetQueueAttributes
-              Resource: !Ref SQSQueueArn
-
-            # Bedrock - Invoke AgentCore agents
-            - Effect: Allow
-              Action:
-                - bedrock-agentcore:InvokeAgentRuntime
-              Resource: !Sub '${AgentRuntimeArn}/*'
-
-            # CloudWatch Logs
-            - Effect: Allow
-              Action:
-                - logs:CreateLogGroup
-                - logs:CreateLogStream
-                - logs:PutLogEvents
-              Resource: '*'
-
-            # X-Ray Tracing
-            - Effect: Allow
-              Action:
-                - xray:PutTraceSegments
-                - xray:PutTelemetryRecords
-              Resource: '*'
 
 Outputs:
   SQSEmailHandlerFunctionName:

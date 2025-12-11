@@ -1,9 +1,9 @@
 #!/bin/bash
 # SAM Stack Deployment Script
 # Deploys ALL Lambda functions in the stack (reads config from env file)
-# Usage: ./deploy.sh              # uses .env
-#        ./deploy.sh .env.qa      # uses .env.qa
-#        ./deploy.sh .env.prod    # uses .env.prod
+# Usage: ./deploy.sh dev          # Deploy to dev (uses .env.dev or .env)
+#        ./deploy.sh qa           # Deploy to qa (uses .env.qa)
+#        ./deploy.sh prod         # Deploy to prod (uses .env.prod)
 
 set -e  # Exit on error
 
@@ -11,10 +11,44 @@ set -e  # Exit on error
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Determine which env file to use (default: .env)
-ENV_FILE="${1:-.env}"
+# Check if environment argument provided
+if [ -z "$1" ]; then
+    echo -e "${YELLOW}Select environment to deploy:${NC}"
+    echo "   1) dev"
+    echo "   2) qa"
+    echo "   3) prod"
+    echo ""
+    read -p "Enter choice (1-3) or environment name: " choice
+
+    case "$choice" in
+        1|dev)   ENVIRONMENT="dev" ;;
+        2|qa)    ENVIRONMENT="qa" ;;
+        3|prod)  ENVIRONMENT="prod" ;;
+        *)
+            echo -e "${RED}❌ Invalid choice: $choice${NC}"
+            exit 1
+            ;;
+    esac
+else
+    ENVIRONMENT="$1"
+fi
+
+# Validate environment
+if [[ ! "$ENVIRONMENT" =~ ^(dev|qa|prod)$ ]]; then
+    echo -e "${RED}❌ Error: Invalid environment '$ENVIRONMENT'${NC}"
+    echo "   Valid environments: dev, qa, prod"
+    exit 1
+fi
+
+# Determine env file: .env.{env} or .env for dev
+if [ "$ENVIRONMENT" = "dev" ] && [ -f ".env" ] && [ ! -f ".env.dev" ]; then
+    ENV_FILE=".env"
+else
+    ENV_FILE=".env.${ENVIRONMENT}"
+fi
 
 # Check if env file exists
 if [ ! -f "$ENV_FILE" ]; then
@@ -25,12 +59,15 @@ if [ ! -f "$ENV_FILE" ]; then
     exit 1
 fi
 
-# Load environment variables
+# Load environment variables from file
 echo -e "${GREEN}📦 Loading configuration from $ENV_FILE...${NC}"
 export $(grep -v '^#' "$ENV_FILE" | grep -v '^$' | xargs)
 
-# Validate required variables
-REQUIRED_VARS=("ENVIRONMENT" "AGENT_RUNTIME_ARN" "SES_EMAIL_BUCKET_NAME" "SQS_QUEUE_ARN")
+# Override ENVIRONMENT with command line argument (ensures consistency)
+export ENVIRONMENT
+
+# Validate required variables (ENVIRONMENT already set from arg)
+REQUIRED_VARS=("AGENT_RUNTIME_ARN" "SES_EMAIL_BUCKET_NAME" "SQS_QUEUE_ARN")
 MISSING_VARS=()
 
 for var in "${REQUIRED_VARS[@]}"; do
@@ -40,7 +77,7 @@ for var in "${REQUIRED_VARS[@]}"; do
 done
 
 if [ ${#MISSING_VARS[@]} -gt 0 ]; then
-    echo -e "${RED}❌ Error: Missing required variables in .env:${NC}"
+    echo -e "${RED}❌ Error: Missing required variables in $ENV_FILE:${NC}"
     for var in "${MISSING_VARS[@]}"; do
         echo "   - $var"
     done

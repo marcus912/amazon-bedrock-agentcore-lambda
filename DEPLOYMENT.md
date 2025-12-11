@@ -13,9 +13,10 @@ cp .env.example .env
 # Edit .env with: AGENT_RUNTIME_ARN, SES_EMAIL_BUCKET_NAME, SQS_QUEUE_ARN
 
 # 2. Deploy
-bin/deploy.sh                    # Deploy using .env (default)
-bin/deploy.sh .env.qa            # Deploy using .env.qa
-bin/deploy.sh .env.prod          # Deploy using .env.prod
+bin/deploy.sh                    # Interactive - prompts for environment
+bin/deploy.sh dev                # Deploy to dev (uses .env or .env.dev)
+bin/deploy.sh qa                 # Deploy to qa (uses .env.qa)
+bin/deploy.sh prod               # Deploy to prod (uses .env.prod)
 ```
 
 ## Verify
@@ -43,7 +44,7 @@ Each environment is fully isolated with its own CloudFormation stack.
 |----------|----------------|
 | CloudFormation Stack | `bedrock-agentcore-lambda-{env}` |
 | Lambda Function | `sqs-email-handler-{env}` |
-| IAM Role | Auto-generated per stack |
+| IAM Role | `sqs-email-handler-role-{env}` |
 | S3 Deployment Prefix | `bedrock-agentcore-lambda-{env}` |
 | S3 Attachment Path | `attachments/{env}/{message-id}/` |
 | S3 Prompt Path | `prompts/{env}/{prompt-name}` |
@@ -71,14 +72,13 @@ Each environment is fully isolated with its own CloudFormation stack.
 
 3. **Deploy**:
    ```bash
-   bin/deploy.sh .env.qa
+   bin/deploy.sh qa
    ```
 
 ### Supported Environments
 
 - `dev` - Development (default)
 - `qa` - Quality Assurance
-- `staging` - Pre-production
 - `prod` - Production (requires changeset confirmation)
 
 ## Troubleshooting

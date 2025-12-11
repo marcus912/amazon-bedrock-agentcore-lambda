@@ -8,7 +8,7 @@ AWS Lambda functions for Bedrock AgentCore workflows with AWS SAM.
 - **Email Attachments**: Extract and upload attachments to S3/CloudFront for GitHub issue embedding
 - Four-layer architecture (handler → domain → services → integrations)
 - Type-safe domain models (dataclasses)
-- Multi-environment support (dev, staging, prod)
+- Multi-environment support (dev, qa, prod)
 - Fail-fast error handling (no retries, always consume messages)
 
 ## System Flow
@@ -41,9 +41,10 @@ uv sync --extra dev
 cp .env.example .env
 
 # 3. Deploy
-bin/deploy.sh                # Deploy using .env (default)
-bin/deploy.sh .env.qa        # Deploy using .env.qa
-bin/deploy.sh .env.prod      # Deploy using .env.prod
+bin/deploy.sh                # Interactive - prompts for environment
+bin/deploy.sh dev            # Deploy to dev (uses .env or .env.dev)
+bin/deploy.sh qa             # Deploy to qa (uses .env.qa)
+bin/deploy.sh prod           # Deploy to prod (uses .env.prod)
 ```
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for details.
@@ -111,7 +112,7 @@ aws logs tail /aws/lambda/sqs-email-handler-dev --follow
 
 ## Configuration
 
-Environments: `dev`, `staging`, `prod` (edit `samconfig.toml`)
+Environments: `dev`, `qa`, `prod` (edit `samconfig.toml`)
 
 **Required** in `.env` or SAM parameters:
 - `AGENT_RUNTIME_ARN`: Bedrock AgentCore runtime ARN
