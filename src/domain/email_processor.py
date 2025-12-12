@@ -17,10 +17,11 @@ import logging
 import time
 from typing import Dict, Any
 
-from .models import EmailMetadata, EmailContent, ProcessingResult
+from .models import EmailMetadata, EmailContent, ProcessingResult, Attachment
 from services import email as email_service
 from services import s3 as s3_service
 from services import prompts as prompt_service
+from services import attachment as attachment_service
 from integrations import agentcore_invocation
 
 logger = logging.getLogger(__name__)
@@ -60,6 +61,9 @@ class EmailProcessor:
                 f"Fetched: text={len(email_content.text_body)}, "
                 f"html={len(email_content.html_body)}, attachments={len(email_content.attachments)}"
             )
+
+            # Upload attachments to S3 (if configured)
+            self._upload_attachments(metadata, email_content)
 
             agent_response = self._invoke_agent(metadata, email_content)
             logger.info(f"Agent response: {agent_response[:200]}..." if len(agent_response) > 200 else f"Agent response: {agent_response}")
@@ -184,11 +188,70 @@ class EmailProcessor:
         # Parse email content
         parsed = email_service.extract_email_body(raw_email)
 
+        # Convert attachment dicts to Attachment objects
+        attachments = [
+            Attachment(
+                filename=att.get('filename', ''),
+                content_type=att.get('content_type', 'application/octet-stream'),
+                size=att.get('size', 0),
+                content=att.get('content')
+            )
+            for att in parsed.get('attachments', [])
+        ]
+
         return EmailContent(
             text_body=parsed.get('text_body', ''),
             html_body=parsed.get('html_body', ''),
-            attachments=parsed.get('attachments', [])
+            attachments=attachments
         )
+
+    def _upload_attachments(
+        self,
+        metadata: EmailMetadata,
+        content: EmailContent
+    ) -> None:
+        """
+        Upload email attachments to S3 and set URLs on Attachment objects.
+
+        Args:
+            metadata: Email metadata (for message ID)
+            content: Email content with attachments to upload
+
+        Note:
+            - Modifies Attachment objects in place to set their URLs
+            - Skips if attachment service is not configured
+            - Individual upload failures are logged but don't stop processing
+        """
+        if not attachment_service.is_configured():
+            logger.info("Attachment upload not configured, skipping")
+            return
+
+        if not content.attachments:
+            logger.info("No attachments to upload")
+            return
+
+        logger.info(f"Uploading {len(content.attachments)} attachment(s)...")
+
+        uploaded_count = 0
+        for attachment in content.attachments:
+            if attachment.content is None:
+                logger.warning(f"Attachment {attachment.filename} has no content, skipping")
+                continue
+
+            url = attachment_service.upload_attachment(
+                filename=attachment.filename,
+                content=attachment.content,
+                content_type=attachment.content_type,
+                message_id=metadata.message_id
+            )
+
+            if url:
+                attachment.url = url
+                uploaded_count += 1
+                # Clear content after upload to free memory
+                attachment.content = None
+
+        logger.info(f"Uploaded {uploaded_count}/{len(content.attachments)} attachment(s)")
 
     def _invoke_agent(
         self,
@@ -254,13 +317,24 @@ class EmailProcessor:
         # Load prompt template (cached on warm invocations)
         prompt_template = prompt_service.load_prompt("github_issue.txt")
 
+        # Format attachments for prompt
+        attachments_list = content.attachments_for_agent()
+        if attachments_list:
+            attachments_text = "\n".join(
+                f"- {att['filename']} ({att['content_type']}): {att.get('url', 'No URL')}"
+                for att in attachments_list
+            )
+        else:
+            attachments_text = "None"
+
         # Format with email data
         prompt = prompt_service.format_prompt(
             prompt_template,
             from_address=metadata.from_address,
             subject=metadata.subject,
             body=content.body_for_agent,
-            timestamp=metadata.timestamp
+            timestamp=metadata.timestamp,
+            attachments=attachments_text
         )
 
         return prompt

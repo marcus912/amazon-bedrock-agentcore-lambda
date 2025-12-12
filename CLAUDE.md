@@ -29,8 +29,10 @@ uv run pytest               # Test
 uv run ruff check .         # Lint
 
 # Deploy
-bin/deploy.sh               # Deploy to dev
-ENVIRONMENT=prod bin/deploy.sh
+bin/deploy.sh               # Interactive - prompts for environment
+bin/deploy.sh dev           # Deploy to dev
+bin/deploy.sh qa            # Deploy to qa
+bin/deploy.sh prod          # Deploy to prod
 ```
 
 ## Core Components

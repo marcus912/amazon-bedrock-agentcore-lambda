@@ -6,7 +6,7 @@ version = 0.1
 stack_name = "bedrock-agentcore-lambda"
 s3_prefix = "bedrock-agentcore-lambda"
 region = "us-west-2"
-capabilities = "CAPABILITY_IAM"
+capabilities = "CAPABILITY_NAMED_IAM"
 parameter_overrides = "Environment=\"dev\" AgentRuntimeArn=\"\" SESEmailBucketName=\"\" SQSQueueArn=\"\""
 confirm_changeset = true
 resolve_s3 = true
@@ -15,8 +15,21 @@ resolve_s3 = true
 [dev.deploy]
 [dev.deploy.parameters]
 stack_name = "bedrock-agentcore-lambda-dev"
+s3_prefix = "bedrock-agentcore-lambda-dev"
+region = "us-west-2"
 parameter_overrides = "Environment=\"dev\" AgentRuntimeArn=\"\" SESEmailBucketName=\"\" SQSQueueArn=\"\""
-capabilities = "CAPABILITY_IAM"
+capabilities = "CAPABILITY_NAMED_IAM"
+confirm_changeset = false
+resolve_s3 = true
+
+[qa]
+[qa.deploy]
+[qa.deploy.parameters]
+stack_name = "bedrock-agentcore-lambda-qa"
+s3_prefix = "bedrock-agentcore-lambda-qa"
+region = "us-west-2"
+parameter_overrides = "Environment=\"qa\" AgentRuntimeArn=\"\" SESEmailBucketName=\"\" SQSQueueArn=\"\""
+capabilities = "CAPABILITY_NAMED_IAM"
 confirm_changeset = false
 resolve_s3 = true
 
@@ -24,8 +37,10 @@ resolve_s3 = true
 [staging.deploy]
 [staging.deploy.parameters]
 stack_name = "bedrock-agentcore-lambda-staging"
+s3_prefix = "bedrock-agentcore-lambda-staging"
+region = "us-west-2"
 parameter_overrides = "Environment=\"staging\" AgentRuntimeArn=\"\" SESEmailBucketName=\"\" SQSQueueArn=\"\""
-capabilities = "CAPABILITY_IAM"
+capabilities = "CAPABILITY_NAMED_IAM"
 confirm_changeset = false
 resolve_s3 = true
 
@@ -33,7 +48,9 @@ resolve_s3 = true
 [prod.deploy]
 [prod.deploy.parameters]
 stack_name = "bedrock-agentcore-lambda-prod"
+s3_prefix = "bedrock-agentcore-lambda-prod"
+region = "us-west-2"
 parameter_overrides = "Environment=\"prod\" AgentRuntimeArn=\"\" SESEmailBucketName=\"\" SQSQueueArn=\"\""
-capabilities = "CAPABILITY_IAM"
+capabilities = "CAPABILITY_NAMED_IAM"
 confirm_changeset = true
 resolve_s3 = true

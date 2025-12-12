@@ -46,15 +46,31 @@ def extract_email_body(email_content: bytes) -> Dict[str, Any]:
             content_type = part.get_content_type()
             content_disposition = str(part.get("Content-Disposition", ""))
 
-            # Handle attachments
-            if "attachment" in content_disposition:
+            # Handle attachments (both "attachment" and "inline" with filename)
+            # Images are often sent as "inline" in HTML emails
+            if "attachment" in content_disposition or (
+                "inline" in content_disposition and part.get_filename()
+            ):
                 filename = part.get_filename()
                 if filename:
+                    content = part.get_payload(decode=True) or b''
                     result['attachments'].append({
                         'filename': filename,
                         'content_type': content_type,
-                        'size': len(part.get_payload(decode=True) or b'')
+                        'size': len(content),
+                        'content': content  # Include binary content for upload
                     })
+            # Also capture files without Content-Disposition but with a filename
+            # (some email clients don't set Content-Disposition for images)
+            elif part.get_filename() and content_type.startswith(('image/', 'application/')):
+                filename = part.get_filename()
+                content = part.get_payload(decode=True) or b''
+                result['attachments'].append({
+                    'filename': filename,
+                    'content_type': content_type,
+                    'size': len(content),
+                    'content': content
+                })
 
             # Extract text body (skip if already found or if it's part of multipart/alternative container)
             elif content_type == "text/plain" and not result['text_body']:

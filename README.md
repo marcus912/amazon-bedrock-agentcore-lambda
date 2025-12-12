@@ -5,9 +5,10 @@ AWS Lambda functions for Bedrock AgentCore workflows with AWS SAM.
 ## Features
 
 - **SQS Email Handler**: SES emails → Bedrock agent → GitHub issues
+- **Email Attachments**: Extract and upload attachments to S3/CloudFront for GitHub issue embedding
 - Four-layer architecture (handler → domain → services → integrations)
 - Type-safe domain models (dataclasses)
-- Multi-environment support (dev, staging, prod)
+- Multi-environment support (dev, qa, prod)
 - Fail-fast error handling (no retries, always consume messages)
 
 ## System Flow
@@ -40,7 +41,10 @@ uv sync --extra dev
 cp .env.example .env
 
 # 3. Deploy
-bin/deploy.sh
+bin/deploy.sh                # Interactive - prompts for environment
+bin/deploy.sh dev            # Deploy to dev (uses .env or .env.dev)
+bin/deploy.sh qa             # Deploy to qa (uses .env.qa)
+bin/deploy.sh prod           # Deploy to prod (uses .env.prod)
 ```
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for details.
@@ -49,9 +53,14 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for details.
 
 Prompts load from: Cache → S3 (if set) → Local filesystem (always works)
 
+S3 path: `s3://{bucket}/prompts/{env}/github_issue.txt`
+
 ```bash
 # Update via S3 (no redeploy)
-bin/update-prompts.sh
+bin/update-prompts.sh              # Upload all prompts to dev
+bin/update-prompts.sh qa           # Upload all prompts to qa
+bin/update-prompts.sh all          # Upload all prompts to ALL environments
+bin/update-prompts.sh prod github_issue.txt  # Upload specific to prod
 
 # Or redeploy with new prompts
 bin/deploy.sh
@@ -103,7 +112,7 @@ aws logs tail /aws/lambda/sqs-email-handler-dev --follow
 
 ## Configuration
 
-Environments: `dev`, `staging`, `prod` (edit `samconfig.toml`)
+Environments: `dev`, `qa`, `prod` (edit `samconfig.toml`)
 
 **Required** in `.env` or SAM parameters:
 - `AGENT_RUNTIME_ARN`: Bedrock AgentCore runtime ARN
@@ -113,6 +122,11 @@ Environments: `dev`, `staging`, `prod` (edit `samconfig.toml`)
 **Optional**:
 - `BEDROCK_READ_TIMEOUT`: Agent timeout in seconds (default: 300 = 5 min)
 - `PROMPT_CACHE_TTL`: Prompt cache TTL in seconds (default: 300)
+
+**Attachments** (optional - for email attachment uploads):
+- `ATTACHMENTS_S3_BUCKET`: S3 bucket for storing attachments
+- `ATTACHMENTS_CLOUDFRONT_DOMAIN`: CloudFront domain for public URLs
+- `ATTACHMENT_MAX_SIZE_MB`: Max file size in MB (default: 20)
 
 ## Troubleshooting
 
