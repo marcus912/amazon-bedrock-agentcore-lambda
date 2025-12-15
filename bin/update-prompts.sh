@@ -1,7 +1,8 @@
 #!/bin/bash
 # Upload prompts to S3
 # Usage: bin/update-prompts.sh [env] [prompt-file]
-#        bin/update-prompts.sh                      # Upload all prompts to dev
+#        bin/update-prompts.sh                      # Interactive - prompts for environment
+#        bin/update-prompts.sh dev                  # Upload all prompts to dev
 #        bin/update-prompts.sh qa                   # Upload all prompts to qa
 #        bin/update-prompts.sh all                  # Upload all prompts to ALL environments
 #        bin/update-prompts.sh prod github_issue.txt  # Upload specific prompt to prod
@@ -12,7 +13,56 @@ set -e  # Exit on error
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
+
+ALL_ENVIRONMENTS="dev qa prod"
+
+# Check if environment argument provided
+if [ -z "$1" ]; then
+    echo -e "${YELLOW}Select environment to upload prompts:${NC}"
+    echo "   1) dev"
+    echo "   2) qa"
+    echo "   3) prod"
+    echo "   4) all"
+    echo ""
+    read -p "Enter choice (1-4) or environment name: " choice
+
+    case "$choice" in
+        1|dev)   ENVIRONMENT="dev" ;;
+        2|qa)    ENVIRONMENT="qa" ;;
+        3|prod)  ENVIRONMENT="prod" ;;
+        4|all)   ENVIRONMENT="all" ;;
+        *)
+            echo -e "${RED}❌ Invalid choice: $choice${NC}"
+            exit 1
+            ;;
+    esac
+    PROMPT_FILE=""
+else
+    # Parse arguments
+    # First arg: environment (dev, qa, prod, all)
+    # Second arg: specific prompt file (optional)
+    ENVIRONMENT="$1"
+
+    # Validate environment
+    if [[ ! "$ENVIRONMENT" =~ ^(dev|qa|prod|all)$ ]]; then
+        # If first arg is not an env, treat it as a prompt file (backward compat)
+        if [ -f "src/prompts/$1" ]; then
+            PROMPT_FILE="$1"
+            ENVIRONMENT="dev"
+        else
+            echo -e "${RED}❌ Error: Invalid environment '$ENVIRONMENT'${NC}"
+            echo "   Valid environments: dev, qa, prod, all"
+            exit 1
+        fi
+    else
+        PROMPT_FILE="$2"
+    fi
+fi
+
+# Save selected environment before loading .env
+SELECTED_ENV="$ENVIRONMENT"
 
 # Check if .env file exists
 if [ ! -f .env ]; then
@@ -26,26 +76,8 @@ fi
 echo -e "${GREEN}📦 Loading configuration from .env...${NC}"
 export $(grep -v '^#' .env | grep -v '^$' | xargs)
 
-# Parse arguments
-# First arg: environment (dev, qa, prod, all) - default: dev
-# Second arg: specific prompt file (optional)
-ENVIRONMENT="${1:-dev}"
-ALL_ENVIRONMENTS="dev qa prod"
-
-# Validate environment
-if [[ ! "$ENVIRONMENT" =~ ^(dev|qa|prod|all)$ ]]; then
-    # If first arg is not an env, treat it as a prompt file (backward compat)
-    if [ -f "src/prompts/$1" ]; then
-        PROMPT_FILE="$1"
-        ENVIRONMENT="dev"
-    else
-        echo -e "${RED}❌ Error: Invalid environment '$ENVIRONMENT'${NC}"
-        echo "   Valid environments: dev, qa, prod, all"
-        exit 1
-    fi
-else
-    PROMPT_FILE="$2"
-fi
+# Restore selected environment (may have been overwritten by .env)
+ENVIRONMENT="$SELECTED_ENV"
 
 # Configuration
 S3_BUCKET="${STORAGE_BUCKET_NAME}"
