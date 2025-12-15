@@ -48,12 +48,12 @@ else
 fi
 
 # Configuration
-S3_BUCKET="${SES_EMAIL_BUCKET_NAME}"
+S3_BUCKET="${STORAGE_BUCKET_NAME}"
 PROMPTS_DIR="src/prompts/"
 
 # Validate bucket name
 if [ -z "$S3_BUCKET" ]; then
-    echo -e "${RED}❌ Error: SES_EMAIL_BUCKET_NAME not set in .env${NC}"
+    echo -e "${RED}❌ Error: STORAGE_BUCKET_NAME not set in .env${NC}"
     exit 1
 fi
 

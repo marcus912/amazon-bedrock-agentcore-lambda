@@ -30,7 +30,7 @@ bin/update-prompts.sh github_issue.txt
 
 Prompts are stored in:
 ```
-s3://${SES_EMAIL_BUCKET_NAME}/prompts/
+s3://${STORAGE_BUCKET_NAME}/prompts/
 ```
 (The bucket name is configured via the `PROMPT_BUCKET` environment variable)
 

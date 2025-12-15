@@ -22,10 +22,10 @@ Parameters:
     Default: ""
     Description: IAM policy resource ARN for Bedrock AgentCore (supports wildcards, e.g., arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/*)
 
-  SESEmailBucketName:
+  StorageBucketName:
     Type: String
     Default: ""
-    Description: Existing S3 bucket name where SES stores emails
+    Description: S3 bucket for app storage (emails, prompts, etc.)
 
   SQSQueueArn:
     Type: String
@@ -70,7 +70,7 @@ Globals:
         ENVIRONMENT: !Ref Environment
         AGENT_RUNTIME_ARN: !Ref AgentRuntimeArn
         BEDROCK_READ_TIMEOUT: !Ref BedrockReadTimeout
-        PROMPT_BUCKET: !Ref SESEmailBucketName
+        PROMPT_BUCKET: !Ref StorageBucketName
         PROMPT_KEY_PREFIX: "prompts/"
         PROMPT_CACHE_TTL: "300"  # Prompt cache TTL in seconds (5 minutes)
         ATTACHMENTS_S3_BUCKET: !Ref AttachmentsS3Bucket
@@ -95,11 +95,11 @@ Resources:
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
-              # S3 - Read emails from existing bucket
+              # S3 - Read from storage bucket (emails, prompts)
               - Effect: Allow
                 Action:
                   - s3:GetObject
-                Resource: !Sub arn:aws:s3:::${SESEmailBucketName}/*
+                Resource: !Sub arn:aws:s3:::${StorageBucketName}/*
 
               # S3 - Write attachments to attachments bucket (if configured)
               - !If
@@ -178,8 +178,8 @@ Outputs:
     Export:
       Name: !Sub ${AWS::StackName}-SQSQueueArn
 
-  SESEmailBucketName:
-    Description: S3 Bucket name (existing bucket where SES stores emails)
-    Value: !Ref SESEmailBucketName
+  StorageBucketName:
+    Description: S3 Bucket name for app storage (emails, prompts, etc.)
+    Value: !Ref StorageBucketName
     Export:
-      Name: !Sub ${AWS::StackName}-SESEmailBucketName
+      Name: !Sub ${AWS::StackName}-StorageBucketName

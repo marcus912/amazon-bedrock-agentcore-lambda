@@ -10,7 +10,7 @@
 ```bash
 # 1. Configure
 cp .env.example .env
-# Edit .env with: AGENT_RUNTIME_ARN, SES_EMAIL_BUCKET_NAME, SQS_QUEUE_ARN
+# Edit .env with: AGENT_RUNTIME_ARN, STORAGE_BUCKET_NAME, SQS_QUEUE_ARN
 
 # 2. Deploy
 bin/deploy.sh                    # Interactive - prompts for environment

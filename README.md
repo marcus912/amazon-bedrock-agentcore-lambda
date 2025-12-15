@@ -116,7 +116,7 @@ Environments: `dev`, `qa`, `prod` (edit `samconfig.toml`)
 
 **Required** in `.env` or SAM parameters:
 - `AGENT_RUNTIME_ARN`: Bedrock AgentCore runtime ARN
-- `SES_EMAIL_BUCKET_NAME`: S3 bucket where SES stores emails
+- `STORAGE_BUCKET_NAME`: S3 bucket for app storage (emails, prompts)
 - `SQS_QUEUE_ARN`: SQS queue ARN for email notifications
 
 **Optional**:

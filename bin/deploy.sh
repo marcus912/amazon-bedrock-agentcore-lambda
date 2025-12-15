@@ -67,7 +67,7 @@ export $(grep -v '^#' "$ENV_FILE" | grep -v '^$' | xargs)
 export ENVIRONMENT
 
 # Validate required variables (ENVIRONMENT already set from arg)
-REQUIRED_VARS=("AGENT_RUNTIME_ARN" "SES_EMAIL_BUCKET_NAME" "SQS_QUEUE_ARN")
+REQUIRED_VARS=("AGENT_RUNTIME_ARN" "STORAGE_BUCKET_NAME" "SQS_QUEUE_ARN")
 MISSING_VARS=()
 
 for var in "${REQUIRED_VARS[@]}"; do
@@ -95,7 +95,7 @@ AGENT_RUNTIME_POLICY_RESOURCE=${AGENT_RUNTIME_POLICY_RESOURCE:-""}
 echo -e "${GREEN}✅ Configuration loaded:${NC}"
 echo "   Environment: $ENVIRONMENT"
 echo "   Agent ARN: ${AGENT_RUNTIME_ARN:0:50}..."
-echo "   S3 Bucket: $SES_EMAIL_BUCKET_NAME"
+echo "   Storage Bucket: $STORAGE_BUCKET_NAME"
 echo "   SQS Queue: ${SQS_QUEUE_ARN:0:50}..."
 echo "   Bedrock Timeout: ${BEDROCK_READ_TIMEOUT}s"
 if [ -n "$ATTACHMENTS_S3_BUCKET" ]; then
@@ -117,7 +117,7 @@ sam deploy \
     "Environment=$ENVIRONMENT" \
     "AgentRuntimeArn=$AGENT_RUNTIME_ARN" \
     "AgentRuntimePolicyResource=$AGENT_RUNTIME_POLICY_RESOURCE" \
-    "SESEmailBucketName=$SES_EMAIL_BUCKET_NAME" \
+    "StorageBucketName=$STORAGE_BUCKET_NAME" \
     "SQSQueueArn=$SQS_QUEUE_ARN" \
     "BedrockReadTimeout=$BEDROCK_READ_TIMEOUT" \
     "AttachmentsS3Bucket=$ATTACHMENTS_S3_BUCKET" \
