@@ -41,7 +41,9 @@ Thumbs.db
 # Environment variables
 .env
 .env.local
+.env.dev
 .env.qa
+.env.prod
 env-vars.json
 
 # Logs

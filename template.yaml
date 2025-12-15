@@ -17,6 +17,11 @@ Parameters:
     Default: ""
     Description: ARN of the Bedrock AgentCore runtime (optional, can be set per environment)
 
+  AgentRuntimePolicyResource:
+    Type: String
+    Default: ""
+    Description: IAM policy resource ARN for Bedrock AgentCore (supports wildcards, e.g., arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/*)
+
   SESEmailBucketName:
     Type: String
     Default: ""
@@ -117,7 +122,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - bedrock-agentcore:InvokeAgentRuntime
-                Resource: !Sub '${AgentRuntimeArn}/*'
+                Resource: !Ref AgentRuntimePolicyResource
 
               # CloudWatch Logs
               - Effect: Allow
