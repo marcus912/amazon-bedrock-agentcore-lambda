@@ -13,12 +13,11 @@ Attachments:
 
 **INSTRUCTIONS**:
 1. Query your knowledge base for "GitHub Bug Issue Guide for Linksys Products" to get:
-  - Issue template structure for the linksys/bugs repository
+  - Issue template structure and target repository
   - Required fields (description, steps to reproduce, product SKU, firmware version)
   - Bug category definitions (Firmware Bug, UI Bug)
   - Title format and labeling conventions
   - AI agent instructions for issue creation
-  - Also reference "Linksys SKUs.docx" to validate product model numbers
   - If the guide is not found, respond with an error message
 
 2. Extract information from the email to populate required fields:
